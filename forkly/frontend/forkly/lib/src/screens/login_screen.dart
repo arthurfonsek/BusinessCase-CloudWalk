@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/user.dart';
 import '../services/auth_service_simple.dart';
 import '../widgets/responsive_button.dart';
+import '../widgets/primary_button.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {

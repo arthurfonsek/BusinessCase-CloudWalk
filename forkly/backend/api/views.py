@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from django.contrib.auth.models import User
 from django.contrib.auth import login, logout
 from django.db.models import F
+from django.db import models
 from django.core.mail import send_mail
 from django.conf import settings
 from django.utils.crypto import get_random_string
@@ -12,8 +13,9 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger
+from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger, Tier, UserTier, Achievement, UserAchievement, Reward, UserReward, Friendship, AIConversation, AIMessage
 from .serializers import *
+from .ai_gamification_service import AIGamificationService
 from .utils import gen_code, haversine
 
 load_dotenv()
@@ -435,3 +437,411 @@ def popular_restaurants_view(request):
     
     serializer = RestaurantSerializer(popular_restaurants, many=True)
     return Response(serializer.data)
+
+# ===== SISTEMA DE GAMIFICAÇÃO =====
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def gamification_stats_view(request):
+    """Retorna estatísticas completas de gamificação do usuário"""
+    user = request.user
+    
+    # Obter ou criar UserTier
+    user_tier, created = UserTier.objects.get_or_create(
+        user=user,
+        defaults={'tier': Tier.objects.filter(min_referrals=0).first()}
+    )
+    
+    # Atualizar estatísticas
+    # Contar referrals usando Friendship (sistema atual)
+    referrals_count = Friendship.objects.filter(user=user, is_referred=True).count()
+    user_tier.current_referrals = referrals_count
+    user_tier.total_points = Profile.objects.get(user=user).points
+    user_tier.save()
+    
+    # Atualizar tier se necessário
+    user_tier.update_tier()
+    
+    # Buscar conquistas do usuário
+    user_achievements = UserAchievement.objects.filter(user=user).order_by('-unlocked_at')
+    
+    # Buscar recompensas disponíveis
+    available_rewards = Reward.objects.filter(is_active=True).order_by('points_cost')
+    
+    # Buscar recompensas do usuário
+    user_rewards = UserReward.objects.filter(user=user).order_by('-claimed_at')
+    
+    # Estatísticas de referência
+    referral_stats = {
+        'total_referrals': referrals_count,
+        'successful_referrals': Friendship.objects.filter(user=user, is_referred=True).count(),  # Todos os referrals são considerados bem-sucedidos
+        'pending_referrals': 0,  # Não há referrals pendentes no sistema atual
+        'total_points_earned': RewardLedger.objects.filter(user=user).aggregate(
+            total=models.Sum('points')
+        )['total'] or 0
+    }
+    
+    data = {
+        'user_tier': UserTierSerializer(user_tier).data,
+        'achievements': UserAchievementSerializer(user_achievements, many=True).data,
+        'available_rewards': RewardSerializer(available_rewards, many=True).data,
+        'user_rewards': UserRewardSerializer(user_rewards, many=True).data,
+        'referral_stats': referral_stats
+    }
+    
+    return Response(data)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def claim_reward_view(request):
+    """Resgata uma recompensa com pontos"""
+    reward_id = request.data.get('reward_id')
+    
+    if not reward_id:
+        return Response({'error': 'ID da recompensa é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        reward = Reward.objects.get(id=reward_id, is_active=True)
+    except Reward.DoesNotExist:
+        return Response({'error': 'Recompensa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+    
+    user_profile = Profile.objects.get(user=request.user)
+    
+    if user_profile.points < reward.points_cost:
+        return Response({'error': 'Pontos insuficientes'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Verificar se já possui esta recompensa
+    if UserReward.objects.filter(user=request.user, reward=reward).exists():
+        return Response({'error': 'Você já possui esta recompensa'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Descontar pontos
+    user_profile.points -= reward.points_cost
+    user_profile.save()
+    
+    # Criar recompensa do usuário
+    user_reward = UserReward.objects.create(user=request.user, reward=reward)
+    
+    # Registrar no ledger
+    RewardLedger.objects.create(
+        user=request.user,
+        reason='reward_claimed',
+        points=-reward.points_cost,
+        meta={'reward_id': reward.id, 'reward_name': reward.name}
+    )
+    
+    return Response({
+        'message': 'Recompensa resgatada com sucesso!',
+        'user_reward': UserRewardSerializer(user_reward).data,
+        'remaining_points': user_profile.points
+    })
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def use_reward_view(request):
+    """Usa uma recompensa resgatada"""
+    user_reward_id = request.data.get('user_reward_id')
+    
+    if not user_reward_id:
+        return Response({'error': 'ID da recompensa do usuário é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        user_reward = UserReward.objects.get(id=user_reward_id, user=request.user)
+    except UserReward.DoesNotExist:
+        return Response({'error': 'Recompensa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+    
+    if user_reward.is_used:
+        return Response({'error': 'Esta recompensa já foi utilizada'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Marcar como usada
+    from django.utils import timezone
+    user_reward.is_used = True
+    user_reward.used_at = timezone.now()
+    user_reward.save()
+    
+    return Response({
+        'message': 'Recompensa utilizada com sucesso!',
+        'user_reward': UserRewardSerializer(user_reward).data
+    })
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def achievements_view(request):
+    """Lista todas as conquistas disponíveis e do usuário"""
+    user = request.user
+    
+    # Todas as conquistas
+    all_achievements = Achievement.objects.filter(is_active=True).order_by('condition_value')
+    
+    # Conquistas do usuário
+    user_achievements = UserAchievement.objects.filter(user=user).values_list('achievement_id', flat=True)
+    
+    # Adicionar status para cada conquista
+    achievements_data = []
+    for achievement in all_achievements:
+        is_unlocked = achievement.id in user_achievements
+        achievements_data.append({
+            **AchievementSerializer(achievement).data,
+            'is_unlocked': is_unlocked,
+            'unlocked_at': UserAchievement.objects.filter(
+                user=user, achievement=achievement
+            ).first().unlocked_at if is_unlocked else None
+        })
+    
+    return Response(achievements_data)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def leaderboard_view(request):
+    """Ranking de usuários por pontos e referências"""
+    from django.db.models import Count
+    
+    # Ranking por pontos
+    points_ranking = User.objects.annotate(
+        total_points=models.F('profile__points')
+    ).order_by('-profile__points')[:20]
+    
+    # Ranking por referências
+    referrals_ranking = User.objects.annotate(
+        total_referrals=Count('invites', filter=models.Q(invites__status='registered'))
+    ).order_by('-total_referrals')[:20]
+    
+    return Response({
+        'points_ranking': [
+            {
+                'username': user.username,
+                'points': user.profile.points,
+                'tier': user.user_tier.tier.name if hasattr(user, 'user_tier') else 'Iniciante'
+            }
+            for user in points_ranking
+        ],
+        'referrals_ranking': [
+            {
+                'username': user.username,
+                'referrals': user.total_referrals,
+                'tier': user.user_tier.tier.name if hasattr(user, 'user_tier') else 'Iniciante'
+            }
+            for user in referrals_ranking
+        ]
+    })
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def check_achievements_view(request):
+    """Verifica e desbloqueia conquistas do usuário"""
+    user = request.user
+    
+    # Obter estatísticas do usuário
+    referrals_count = Referral.objects.filter(inviter=user, status='registered').count()
+    reviews_count = Review.objects.filter(user=user).count()
+    total_points = Profile.objects.get(user=user).points
+    
+    # Verificar conquistas
+    achievements_to_check = Achievement.objects.filter(is_active=True)
+    new_achievements = []
+    
+    for achievement in achievements_to_check:
+        # Verificar se já possui a conquista
+        if UserAchievement.objects.filter(user=user, achievement=achievement).exists():
+            continue
+            
+        # Verificar condições
+        should_unlock = False
+        if achievement.condition_type == 'referrals' and referrals_count >= achievement.condition_value:
+            should_unlock = True
+        elif achievement.condition_type == 'reviews' and reviews_count >= achievement.condition_value:
+            should_unlock = True
+        elif achievement.condition_type == 'points' and total_points >= achievement.condition_value:
+            should_unlock = True
+        
+        if should_unlock:
+            # Desbloquear conquista
+            user_achievement = UserAchievement.objects.create(user=user, achievement=achievement)
+            
+            # Adicionar pontos da conquista
+            if achievement.points_reward > 0:
+                user_profile = Profile.objects.get(user=user)
+                user_profile.points += achievement.points_reward
+                user_profile.save()
+                
+                RewardLedger.objects.create(
+                    user=user,
+                    reason='achievement_unlocked',
+                    points=achievement.points_reward,
+                    meta={'achievement_id': achievement.id, 'achievement_name': achievement.name}
+                )
+            
+            new_achievements.append(UserAchievementSerializer(user_achievement).data)
+    
+    return Response({
+        'new_achievements': new_achievements,
+        'message': f'{len(new_achievements)} nova(s) conquista(s) desbloqueada(s)!' if new_achievements else 'Nenhuma nova conquista desbloqueada.'
+    })
+
+# ===== SISTEMA DE CHAT COM IA =====
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def start_ai_conversation_view(request):
+    """Inicia uma nova conversa com IA"""
+    try:
+        ai_service = AIGamificationService()
+        conversation = ai_service.create_conversation(request.user)
+        
+        # Mensagem de boas-vindas
+        welcome_message = ai_service.generate_ai_response(request.user, "Olá! Como posso te ajudar com gamificação?")
+        ai_service.add_message(conversation, 'assistant', welcome_message, 'text')
+        
+        serializer = AIConversationSerializer(conversation)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def send_ai_message_view(request):
+    """Envia mensagem para IA e recebe resposta"""
+    serializer = ChatMessageSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        ai_service = AIGamificationService()
+        message = serializer.validated_data['message']
+        conversation_id = serializer.validated_data.get('conversation_id')
+        
+        # Buscar ou criar conversa
+        if conversation_id:
+            try:
+                conversation = AIConversation.objects.get(
+                session_id=conversation_id, 
+                user=request.user, 
+                is_active=True
+            )
+            except AIConversation.DoesNotExist:
+                return Response({'error': 'Conversa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            conversation = ai_service.create_conversation(request.user)
+        
+        # Adicionar mensagem do usuário
+        user_message = ai_service.add_message(conversation, 'user', message, 'text')
+        
+        # Gerar resposta da IA
+        ai_response = ai_service.generate_ai_response(request.user, message)
+        ai_message = ai_service.add_message(conversation, 'assistant', ai_response, 'text')
+        
+        # Obter histórico da conversa
+        conversation_history = ai_service.get_conversation_history(conversation)
+        
+        return Response({
+            'conversation_id': conversation.session_id,
+            'message': AIMessageSerializer(ai_message).data,
+            'conversation_history': conversation_history
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_ai_conversations_view(request):
+    """Lista conversas de IA do usuário"""
+    try:
+        conversations = AIConversation.objects.filter(
+            user=request.user, 
+            is_active=True
+        ).order_by('-updated_at')
+        
+        serializer = AIConversationSerializer(conversations, many=True)
+        return Response(serializer.data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_ai_conversation_view(request, conversation_id):
+    """Obtém conversa específica com histórico"""
+    try:
+        conversation = AIConversation.objects.get(
+            session_id=conversation_id,
+            user=request.user,
+            is_active=True
+        )
+        
+        serializer = AIConversationSerializer(conversation)
+        return Response(serializer.data)
+    except AIConversation.DoesNotExist:
+        return Response({'error': 'Conversa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated])
+def end_ai_conversation_view(request, conversation_id):
+    """Encerra conversa com IA"""
+    try:
+        conversation = AIConversation.objects.get(
+            session_id=conversation_id,
+            user=request.user,
+            is_active=True
+        )
+        
+        conversation.is_active = False
+        conversation.save()
+        
+        return Response({'message': 'Conversa encerrada com sucesso'})
+    except AIConversation.DoesNotExist:
+        return Response({'error': 'Conversa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_ai_recommendations_view(request):
+    """Obtém recomendações personalizadas da IA"""
+    try:
+        ai_service = AIGamificationService()
+        context = ai_service.get_user_gamification_context(request.user)
+        
+        if 'error' in context:
+            return Response({'error': context['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        # Gerar recomendações baseadas no contexto
+        recommendations = []
+        
+        # Recomendação de tier
+        if context['next_tier']:
+            recommendations.append({
+                'type': 'tier_progress',
+                'title': f'Progredir para {context["next_tier"]}',
+                'description': f'Você precisa de {context["referrals_to_next"]} referrals para o próximo tier',
+                'action': 'Compartilhar código de referência',
+                'priority': 'high'
+            })
+        
+        # Recomendação de pontos
+        if context['total_points'] > 0:
+            recommendations.append({
+                'type': 'reward_suggestion',
+                'title': 'Usar seus pontos',
+                'description': f'Você tem {context["total_points"]} pontos para gastar',
+                'action': 'Ver recompensas disponíveis',
+                'priority': 'medium'
+            })
+        
+        # Recomendação de conquistas
+        if context['achievements_count'] < 5:
+            recommendations.append({
+                'type': 'achievement',
+                'title': 'Desbloquear conquistas',
+                'description': 'Complete ações para desbloquear novas conquistas',
+                'action': 'Ver conquistas disponíveis',
+                'priority': 'low'
+            })
+        
+        return Response({
+            'recommendations': recommendations,
+            'context': context
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

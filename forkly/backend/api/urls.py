@@ -38,6 +38,22 @@ urlpatterns = [
   path("restaurants/network-recommendations/", network_recommendations_view),
   path("restaurants/popular/", popular_restaurants_view),
   
+  # Rotas de Gamificação
+  path("gamification/stats/", gamification_stats_view),
+  path("gamification/rewards/claim/", claim_reward_view),
+  path("gamification/rewards/use/", use_reward_view),
+  path("gamification/achievements/", achievements_view),
+  path("gamification/achievements/check/", check_achievements_view),
+  path("gamification/leaderboard/", leaderboard_view),
+  
+  # Rotas de Chat com IA
+  path("ai/chat/start/", start_ai_conversation_view),
+  path("ai/chat/send/", send_ai_message_view),
+  path("ai/chat/conversations/", get_ai_conversations_view),
+  path("ai/chat/conversations/<str:conversation_id>/", get_ai_conversation_view),
+  path("ai/chat/conversations/<str:conversation_id>/end/", end_ai_conversation_view),
+  path("ai/recommendations/", get_ai_recommendations_view),
+  
   # Router por último (para evitar conflitos)
   path("", include(router.urls)),
 ]

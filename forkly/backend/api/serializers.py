@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger, Friendship
+from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger, Friendship, Tier, UserTier, Achievement, UserAchievement, Reward, UserReward, AIConversation, AIMessage
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta: 
@@ -172,3 +172,82 @@ class ListCreateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=120)
     description = serializers.CharField(max_length=500, required=False, allow_blank=True)
     is_public = serializers.BooleanField(default=True)
+
+# Serializers para Sistema de Gamificação
+class TierSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tier
+        fields = '__all__'
+
+class UserTierSerializer(serializers.ModelSerializer):
+    tier = TierSerializer(read_only=True)
+    tier_name = serializers.CharField(source='tier.name', read_only=True)
+    tier_color = serializers.CharField(source='tier.color', read_only=True)
+    tier_icon = serializers.CharField(source='tier.icon', read_only=True)
+    tier_benefits = serializers.JSONField(source='tier.benefits', read_only=True)
+    
+    class Meta:
+        model = UserTier
+        fields = ['tier', 'tier_name', 'tier_color', 'tier_icon', 'tier_benefits', 'current_referrals', 'total_points', 'last_updated']
+
+class AchievementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Achievement
+        fields = '__all__'
+
+class UserAchievementSerializer(serializers.ModelSerializer):
+    achievement = AchievementSerializer(read_only=True)
+    achievement_name = serializers.CharField(source='achievement.name', read_only=True)
+    achievement_description = serializers.CharField(source='achievement.description', read_only=True)
+    achievement_icon = serializers.CharField(source='achievement.icon', read_only=True)
+    points_reward = serializers.IntegerField(source='achievement.points_reward', read_only=True)
+    
+    class Meta:
+        model = UserAchievement
+        fields = ['achievement', 'achievement_name', 'achievement_description', 'achievement_icon', 'points_reward', 'unlocked_at']
+
+class RewardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reward
+        fields = '__all__'
+
+class UserRewardSerializer(serializers.ModelSerializer):
+    reward = RewardSerializer(read_only=True)
+    reward_name = serializers.CharField(source='reward.name', read_only=True)
+    reward_description = serializers.CharField(source='reward.description', read_only=True)
+    reward_type = serializers.CharField(source='reward.reward_type', read_only=True)
+    
+    class Meta:
+        model = UserReward
+        fields = ['id', 'reward', 'reward_name', 'reward_description', 'reward_type', 'claimed_at', 'is_used', 'used_at']
+
+class GamificationStatsSerializer(serializers.Serializer):
+    user_tier = UserTierSerializer(read_only=True)
+    achievements = UserAchievementSerializer(many=True, read_only=True)
+    available_rewards = RewardSerializer(many=True, read_only=True)
+    user_rewards = UserRewardSerializer(many=True, read_only=True)
+    referral_stats = serializers.DictField(read_only=True)
+
+# Serializers para Sistema de Chat com IA
+class AIMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AIMessage
+        fields = ['id', 'role', 'content', 'message_type', 'created_at', 'metadata']
+        read_only_fields = ['id', 'created_at']
+
+class AIConversationSerializer(serializers.ModelSerializer):
+    messages = AIMessageSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = AIConversation
+        fields = ['id', 'session_id', 'created_at', 'updated_at', 'is_active', 'messages']
+        read_only_fields = ['id', 'session_id', 'created_at', 'updated_at']
+
+class ChatMessageSerializer(serializers.Serializer):
+    message = serializers.CharField(max_length=1000)
+    conversation_id = serializers.CharField(required=False, allow_blank=True)
+
+class ChatResponseSerializer(serializers.Serializer):
+    conversation_id = serializers.CharField()
+    message = AIMessageSerializer()
+    conversation_history = AIMessageSerializer(many=True)

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api.dart';
 import '../widgets/responsive_button.dart';
+import '../widgets/primary_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   final String? referralCode;

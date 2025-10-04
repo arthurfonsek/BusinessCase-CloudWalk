@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/user.dart';
 import '../services/auth_service_simple.dart';
 import '../widgets/responsive_button.dart';
+import '../widgets/primary_button.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});

@@ -3,6 +3,7 @@ import '../models/friend.dart';
 import '../services/friends_service.dart';
 import '../services/api.dart';
 import '../widgets/responsive_button.dart';
+import '../widgets/primary_button.dart';
 import 'friends_lists_screen.dart';
 
 class FriendsScreen extends StatefulWidget {

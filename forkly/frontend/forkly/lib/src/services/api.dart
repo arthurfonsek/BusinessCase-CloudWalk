@@ -51,6 +51,23 @@ class Api {
     final r = await _dio.post('auth/register/', data: data);
     return r.data;
   }
+
+  // Métodos genéricos para requisições HTTP
+  Future<Response> get(String endpoint) async {
+    return await _dio.get(endpoint);
+  }
+
+  Future<Response> post(String endpoint, {dynamic data}) async {
+    return await _dio.post(endpoint, data: data);
+  }
+
+  Future<Response> put(String endpoint, {dynamic data}) async {
+    return await _dio.put(endpoint, data: data);
+  }
+
+  Future<Response> delete(String endpoint) async {
+    return await _dio.delete(endpoint);
+  }
   
   Future<void> track(String code, String status) async {
     await _dio.post('referrals/track/', data: {"code":code,"status":status});
