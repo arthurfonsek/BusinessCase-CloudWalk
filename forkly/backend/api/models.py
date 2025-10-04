@@ -50,3 +50,13 @@ class RewardLedger(models.Model):
     points = models.IntegerField()
     meta = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+
+class Friendship(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='friends')
+    friend = models.ForeignKey(User, on_delete=models.CASCADE, related_name='friend_of')
+    is_referred = models.BooleanField(default=False)  # Se foi adicionado através de código de referência
+    referral_code = models.CharField(max_length=12, blank=True, null=True)  # Código usado
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = ['user', 'friend']

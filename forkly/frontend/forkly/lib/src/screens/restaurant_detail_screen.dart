@@ -92,8 +92,8 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.blue[600]!,
-                      Colors.blue[400]!,
+                      const Color(0xFFd60000),
+                      const Color(0xFFd60000).withOpacity(0.8),
                     ],
                   ),
                 ),
@@ -172,14 +172,14 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.rate_review, color: Colors.blue[600]),
+                              Icon(Icons.rate_review, color: const Color(0xFFd60000)),
                               const SizedBox(width: 8),
                               Text(
                                 'Deixe sua avaliação',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.blue[800],
+                                  color: Color(0xFFd60000),
                                 ),
                               ),
                             ],
@@ -235,7 +235,7 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
                                   : const Icon(Icons.send),
                               label: Text(_isSubmitting ? 'Enviando...' : 'Enviar Avaliação'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue[600],
+                                backgroundColor: const Color(0xFFd60000),
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(

@@ -27,6 +27,7 @@ class _HomeMapScreenState extends State<HomeMapScreen>{
         longitude: e["lng"],
         title: e["name"],
         snippet: "${e["rating_avg"]}★  \$${e["price_level"]}",
+        address: e["address"] ?? "Endereço não disponível",
       )).toSet(); 
     });
   }
@@ -48,6 +49,7 @@ class _HomeMapScreenState extends State<HomeMapScreen>{
           longitude: e["lng"],
           title: e["name"],
           snippet: "${e["rating_avg"]}★  \$${e["price_level"]}",
+          address: e["address"] ?? "Endereço não disponível",
         )).toSet(); 
         _isSearching = false;
       });
@@ -103,7 +105,14 @@ class _HomeMapScreenState extends State<HomeMapScreen>{
 
     return Scaffold(
              appBar: AppBar(
-               title: const Text('FoodieMap'), 
+               title: const Text('Mapa de Restaurantes'),
+               backgroundColor: const Color(0xFFd60000),
+               foregroundColor: Colors.white,
+               elevation: 0,
+               leading: IconButton(
+                 icon: const Icon(Icons.arrow_back),
+                 onPressed: () => Navigator.pop(context),
+               ),
                actions: [
                  IconButton(
                    onPressed: () => Navigator.pushNamed(context, "/my-lists"), 

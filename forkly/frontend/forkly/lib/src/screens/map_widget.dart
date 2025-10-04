@@ -352,6 +352,7 @@ class MapMarker {
   final double longitude;
   final String title;
   final String snippet;
+  final String address;
 
   const MapMarker({
     required this.id,
@@ -359,5 +360,6 @@ class MapMarker {
     required this.longitude,
     required this.title,
     required this.snippet,
+    required this.address,
   });
 }

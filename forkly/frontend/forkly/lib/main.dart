@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'src/app.dart';
+import 'src/services/auth_service_simple.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ProviderScope(child: FoodieApp()));
+  
+  // Inicializar o AuthService
+  final authService = AuthService();
+  await authService.initialize();
+  
+  runApp(const FoodieApp());
 }
 

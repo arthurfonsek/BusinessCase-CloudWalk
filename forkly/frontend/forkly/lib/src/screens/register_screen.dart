@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api.dart';
+import '../widgets/responsive_button.dart';
 
 class RegisterScreen extends StatefulWidget {
   final String? referralCode;
@@ -47,7 +48,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
       
       // Track referral if code is provided
       if (_referralCodeController.text.trim().isNotEmpty) {
-        await api.track(_referralCodeController.text.trim(), 'registered');
+        try {
+          await api.track(_referralCodeController.text.trim(), 'registered');
+        } catch (e) {
+          // Referral tracking failed, but continue with registration
+          print('Erro ao rastrear referência: $e');
+        }
       }
       
       // Register user
@@ -62,7 +68,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Registro realizado com sucesso!'),
+            content: Text('Conta criada com sucesso!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -70,10 +76,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } catch (e) {
       if (mounted) {
+        String errorMessage = 'Erro no registro';
+        
+        if (e.toString().contains('400')) {
+          errorMessage = 'Dados inválidos. Verifique se a senha tem pelo menos 8 caracteres e o email é válido.';
+        } else if (e.toString().contains('username')) {
+          errorMessage = 'Nome de usuário já existe. Tente outro.';
+        } else if (e.toString().contains('email')) {
+          errorMessage = 'Email já está em uso. Tente outro.';
+        } else if (e.toString().contains('password')) {
+          errorMessage = 'Senha muito fraca. Use pelo menos 8 caracteres com letras e números.';
+        } else if (e.toString().contains('network')) {
+          errorMessage = 'Erro de conexão. Verifique sua internet.';
+        } else {
+          errorMessage = 'Erro no registro: ${e.toString()}';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro no registro: $e'),
+            content: Text(errorMessage),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
@@ -89,7 +112,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Registro'),
-        backgroundColor: Colors.blue[600],
+        backgroundColor: const Color(0xFFd60000),
         foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
@@ -108,14 +131,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     Icon(
                       Icons.restaurant,
                       size: 80,
-                      color: Colors.blue[600],
+                      color: const Color(0xFFd60000),
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'FoodieMap',
+                      'Forkly',
                       style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: Colors.blue[600],
+                        color: const Color(0xFFd60000),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -181,8 +204,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
-                  if (value == null || value.length < 6) {
-                    return 'Senha deve ter pelo menos 6 caracteres';
+                  if (value == null || value.isEmpty) {
+                    return 'Senha é obrigatória';
+                  }
+                  if (value.length < 8) {
+                    return 'Senha deve ter pelo menos 8 caracteres';
+                  }
+                  if (!RegExp(r'^(?=.*[a-zA-Z])(?=.*\d)').hasMatch(value)) {
+                    return 'Senha deve conter letras e números';
                   }
                   return null;
                 },
@@ -194,22 +223,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.blue[50],
+                  color: const Color(0xFFd60000).withOpacity(0.05),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blue[200]!),
+                  border: Border.all(color: const Color(0xFFd60000).withOpacity(0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.card_giftcard, color: Colors.blue[600]),
+                        Icon(Icons.card_giftcard, color: const Color(0xFFd60000)),
                         const SizedBox(width: 8),
                         Text(
                           'Código de Referência',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Colors.blue[800],
+                            color: const Color(0xFFd60000),
                           ),
                         ),
                       ],
@@ -217,7 +246,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     const SizedBox(height: 8),
                     Text(
                       'Tem um código de referência? Cole aqui para ganhar benefícios!',
-                      style: TextStyle(color: Colors.blue[700]),
+                      style: TextStyle(color: const Color(0xFFd60000).withOpacity(0.8)),
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
@@ -245,32 +274,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
               const SizedBox(height: 32),
               
               // Register button
-              ElevatedButton(
+              PrimaryButton(
+                text: 'Criar Conta',
                 onPressed: _isLoading ? null : _register,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue[600],
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: _isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text(
-                        'Criar Conta',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                isLoading: _isLoading,
+                size: MediaQuery.of(context).size.width < 600 ? ButtonSize.medium : ButtonSize.large,
               ),
               
               const SizedBox(height: 16),
@@ -281,7 +289,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   onPressed: () => Navigator.pop(context),
                   child: Text(
                     'Já tem uma conta? Faça login',
-                    style: TextStyle(color: Colors.blue[600]),
+                    style: TextStyle(color: const Color(0xFFd60000)),
                   ),
                 ),
               ),
