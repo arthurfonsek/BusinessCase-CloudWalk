@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../services/api.dart';
 import '../widgets/responsive_button.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/forkly_logo.dart';
 
 class RegisterScreen extends StatefulWidget {
   final String? referralCode;
@@ -135,12 +136,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       color: const Color(0xFFd60000),
                     ),
                     const SizedBox(height: 16),
-                    Text(
-                      'Forkly',
-                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFFd60000),
-                      ),
+                    ForklyLogoVertical(
+                      fontSize: 32,
+                      color: const Color(0xFFd60000),
                     ),
                     const SizedBox(height: 8),
                     Text(

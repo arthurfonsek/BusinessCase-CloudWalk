@@ -3,6 +3,7 @@ import 'home_map_screen.dart';
 import '../../widgets/rectangular_button.dart';
 import '../widgets/responsive_button.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/forkly_logo.dart';
 import 'map_widget.dart';
 import '../services/api.dart';
 import '../services/ai_search_parser.dart';
@@ -103,7 +104,11 @@ class _HomeScreenState extends State<HomeScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Forkly'),
+        title: const ForklyLogo(
+          fontSize: 20,
+          color: Colors.white,
+          showIcon: false,
+        ),
         backgroundColor: const Color(0xFFd60000),
         foregroundColor: Colors.white,
         elevation: 0,

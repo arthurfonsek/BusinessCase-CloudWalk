@@ -3,6 +3,7 @@ import '../models/user.dart';
 import '../services/auth_service_simple.dart';
 import '../widgets/responsive_button.dart';
 import '../widgets/primary_button.dart';
+import '../widgets/forkly_logo.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -131,13 +132,9 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         SizedBox(height: isSmallScreen ? 16 : 24),
-        Text(
-          'Forkly',
-          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.primary,
-            fontSize: isSmallScreen ? 28 : 36,
-          ),
+        ForklyLogoVertical(
+          fontSize: isSmallScreen ? 28 : 36,
+          color: Theme.of(context).colorScheme.primary,
         ),
         SizedBox(height: isSmallScreen ? 8 : 12),
         Text(
