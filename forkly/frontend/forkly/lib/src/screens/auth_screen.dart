@@ -26,7 +26,7 @@ class _AuthScreenState extends State<AuthScreen>{
           TextField(controller:_code, decoration: const InputDecoration(labelText:"Referral code (optional)")),
           const SizedBox(height:12),
           ElevatedButton(onPressed: () async {
-            final r=await _api.register(_u.text,_p.text, referral:_code.text.isEmpty?null:_code.text);
+            final r=await _api.register(_u.text, _u.text, _p.text, referral:_code.text.isEmpty?null:_code.text);
             setState(()=>_resp="Your code: ${r['referral_code']}");
           }, child: const Text("Create account")),
           if(_resp!=null) Padding(padding: const EdgeInsets.only(top:12), child: Text(_resp!))

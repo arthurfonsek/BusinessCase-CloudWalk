@@ -263,7 +263,9 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
         leading: CircleAvatar(
           backgroundColor: const Color(0xFFd60000),
           child: Text(
-            user['username'][0].toUpperCase(),
+            ((user['username'] ?? '') as String).isNotEmpty
+                ? (user['username'] as String)[0].toUpperCase()
+                : '?',
             style: const TextStyle(color: Colors.white),
           ),
         ),
@@ -357,7 +359,10 @@ class _FriendsScreenState extends State<FriendsScreen> with TickerProviderStateM
         leading: CircleAvatar(
           backgroundColor: const Color(0xFFd60000),
           child: Text(
-            friend.name[0].toUpperCase(),
+            (friend.name.isNotEmpty
+                    ? friend.name[0]
+                    : (friend.username.isNotEmpty ? friend.username[0] : '?'))
+                .toUpperCase(),
             style: const TextStyle(color: Colors.white),
           ),
         ),

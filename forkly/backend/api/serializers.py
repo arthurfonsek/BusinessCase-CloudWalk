@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger, Friendship, Tier, UserTier, Achievement, UserAchievement, Reward, UserReward, AIConversation, AIMessage
+from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger, Friendship, Tier, UserTier, Achievement, UserAchievement, Reward, UserReward, AIConversation, AIMessage, RestaurantOwner, RestaurantProfile, Reservation, RestaurantAnalytics
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta: 
@@ -14,7 +14,7 @@ class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     class Meta: 
         model=Profile; 
-        fields=["user","referral_code","points"]
+        fields=["user","referral_code","points","role"]
 
 class RestaurantSerializer(serializers.ModelSerializer):
     class Meta: 
@@ -251,3 +251,71 @@ class ChatResponseSerializer(serializers.Serializer):
     conversation_id = serializers.CharField()
     message = AIMessageSerializer()
     conversation_history = AIMessageSerializer(many=True)
+
+# Serializers para Sistema de Restaurantes e Reservas
+class RestaurantProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RestaurantProfile
+        fields = '__all__'
+
+class RestaurantOwnerSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    restaurant = RestaurantSerializer(read_only=True)
+    
+    class Meta:
+        model = RestaurantOwner
+        fields = ['id', 'user', 'restaurant', 'is_verified', 'created_at']
+
+class RestaurantDetailSerializer(serializers.ModelSerializer):
+    profile = RestaurantProfileSerializer(read_only=True)
+    owner = RestaurantOwnerSerializer(read_only=True)
+    analytics = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Restaurant
+        fields = '__all__'
+    
+    def get_analytics(self, obj):
+        try:
+            analytics = obj.analytics
+            return {
+                'total_reservations': analytics.total_reservations,
+                'total_revenue': float(analytics.total_revenue),
+                'average_rating': analytics.average_rating,
+                'total_reviews': analytics.total_reviews,
+                'times_recommended': analytics.times_recommended,
+                'times_in_lists': analytics.times_in_lists,
+                'last_updated': analytics.last_updated
+            }
+        except:
+            return None
+
+class ReservationSerializer(serializers.ModelSerializer):
+    restaurant_name = serializers.CharField(source='restaurant.name', read_only=True)
+    customer_username = serializers.CharField(source='customer.username', read_only=True)
+    
+    class Meta:
+        model = Reservation
+        fields = '__all__'
+
+class ReservationCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reservation
+        fields = ['restaurant', 'date', 'time', 'party_size', 'special_requests', 'customer_phone', 'customer_email']
+    
+    def validate_date(self, value):
+        from django.utils import timezone
+        if value < timezone.now().date():
+            raise serializers.ValidationError('Data não pode ser no passado')
+        return value
+
+class RestaurantAnalyticsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RestaurantAnalytics
+        fields = '__all__'
+
+class RestaurantDashboardSerializer(serializers.Serializer):
+    restaurant = RestaurantDetailSerializer(read_only=True)
+    analytics = RestaurantAnalyticsSerializer(read_only=True)
+    recent_reservations = ReservationSerializer(many=True, read_only=True)
+    monthly_stats = serializers.DictField(read_only=True)

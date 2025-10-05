@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
 import '../services/ai_chat_service.dart';
+import '../services/restaurant_ai_chat_service.dart';
 import '../services/auth_service_simple.dart';
 import 'responsive_button.dart';
 
 class AIChatPopup extends StatefulWidget {
-  const AIChatPopup({super.key});
+  final String? title;
+  final String? subtitle;
+  final String? initialContext;
+  final bool restaurantMode;
+
+  const AIChatPopup({super.key, this.title, this.subtitle, this.initialContext, this.restaurantMode=false});
 
   @override
   State<AIChatPopup> createState() => _AIChatPopupState();
@@ -12,6 +18,7 @@ class AIChatPopup extends StatefulWidget {
 
 class _AIChatPopupState extends State<AIChatPopup> with TickerProviderStateMixin {
   final AIChatService _aiChatService = AIChatService();
+  final RestaurantAIChatService _restaurantService = RestaurantAIChatService();
   final AuthService _authService = AuthService();
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -51,7 +58,9 @@ class _AIChatPopupState extends State<AIChatPopup> with TickerProviderStateMixin
     
     try {
       setState(() => _isLoading = true);
-      final response = await _aiChatService.startConversation();
+      final response = widget.restaurantMode
+          ? await _restaurantService.startConversation(systemPrompt: widget.initialContext)
+          : await _aiChatService.startConversation();
       
       setState(() {
         _conversationId = response['session_id'];
@@ -88,10 +97,15 @@ class _AIChatPopupState extends State<AIChatPopup> with TickerProviderStateMixin
         _isTyping = true;
       });
 
-      final response = await _aiChatService.sendMessage(
-        message,
-        conversationId: _conversationId,
-      );
+      final response = widget.restaurantMode
+          ? await _restaurantService.sendMessage(
+              message,
+              conversationId: _conversationId,
+            )
+          : await _aiChatService.sendMessage(
+              message,
+              conversationId: _conversationId,
+            );
 
       setState(() {
         _conversationId = response['conversation_id'];
@@ -133,7 +147,11 @@ class _AIChatPopupState extends State<AIChatPopup> with TickerProviderStateMixin
 
   Widget _buildMessage(Map<String, dynamic> message) {
     final isUser = message['role'] == 'user';
-    final content = message['content'] ?? '';
+    final rawContent = message['content'] ?? '';
+    // Filtrar saudação padrão de gamificação quando em modo restaurante
+    final content = widget.restaurantMode && rawContent.contains('assistente de gamificação')
+        ? ''
+        : rawContent;
     final timestamp = DateTime.tryParse(message['created_at'] ?? '') ?? DateTime.now();
 
     return Container(
@@ -316,21 +334,21 @@ class _AIChatPopupState extends State<AIChatPopup> with TickerProviderStateMixin
                     ),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Assistente IA',
-                          style: TextStyle(
+                          widget.title ?? 'Assistente IA',
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                         Text(
-                          'Como posso te ajudar com gamificação?',
-                          style: TextStyle(
+                          widget.subtitle ?? 'Como posso te ajudar?',
+                          style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
                           ),

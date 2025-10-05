@@ -5,6 +5,8 @@ import '../widgets/responsive_button.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/forkly_logo.dart';
 import 'home_screen.dart';
+import '../app.dart';
+import '../services/api.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -39,9 +41,24 @@ class _LoginScreenState extends State<LoginScreen> {
       );
 
       if (success && mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        // Server-truth check: if dashboard endpoint works, this is an owner
+        try {
+          final api = Api();
+          await api.getRestaurantDashboard();
+          if (!mounted) return;
+          Navigator.of(context).pushReplacementNamed('/restaurant-dashboard');
+          return;
+        } catch (_) {
+          // Fallback to role/home
+          final user = authService.currentUser;
+          if (user != null && user.role.isRestaurantOwner) {
+            Navigator.of(context).pushReplacementNamed('/restaurant-dashboard');
+          } else {
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(builder: (_) => const RoleBasedHome()),
+            );
+          }
+        }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -111,26 +128,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget _buildHeader(BuildContext context, bool isSmallScreen) {
     return Column(
       children: [
-        Container(
-          width: isSmallScreen ? 80 : 100,
-          height: isSmallScreen ? 80 : 100,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Icon(
-            Icons.restaurant,
-            size: isSmallScreen ? 40 : 50,
-            color: Colors.white,
-          ),
-        ),
+        // Remove ícone duplicado; manter apenas o logo principal com cor/borda vermelha
         SizedBox(height: isSmallScreen ? 16 : 24),
         ForklyLogoVertical(
           fontSize: isSmallScreen ? 28 : 36,
@@ -337,46 +335,65 @@ class _LoginScreenState extends State<LoginScreen> {
     return Column(
       children: [
         // Link para registro
+        Text(
+          'Não tem uma conta?',
+          style: TextStyle(
+            fontSize: isSmallScreen ? 14 : 16,
+            color: Colors.grey[600],
+          ),
+        ),
+        const SizedBox(height: 16),
         Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'Não tem uma conta? ',
-              style: TextStyle(
-                fontSize: isSmallScreen ? 14 : 16,
-                color: Colors.grey[600],
-              ),
-            ),
-            TextButton(
+            ElevatedButton.icon(
               onPressed: () {
                 Navigator.of(context).pushNamed('/register');
               },
-              child: Text(
-                'Criar conta',
+              icon: const Icon(Icons.person, size: 20),
+              label: Text(
+                'Sou Cliente',
                 style: TextStyle(
-                  fontSize: isSmallScreen ? 14 : 16,
+                  fontSize: isSmallScreen ? 12 : 14,
                   fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFFd60000),
+                side: const BorderSide(color: Color(0xFFd60000), width: 2),
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).pushNamed('/restaurant-register');
+              },
+              icon: const Icon(Icons.restaurant, size: 20),
+              label: Text(
+                'Sou Restaurante',
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 12 : 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFd60000),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
                 ),
               ),
             ),
           ],
         ),
         
-        SizedBox(height: isSmallScreen ? 8 : 12),
-        
-        // Link para visitar como convidado
-        TextButton(
-          onPressed: () {
-            Navigator.of(context).pushReplacementNamed('/');
-          },
-          child: Text(
-            'Continuar como convidado',
-            style: TextStyle(
-              fontSize: isSmallScreen ? 14 : 16,
-              color: Colors.grey[600],
-            ),
-          ),
-        ),
+        // Removido: continuar como convidado
       ],
     );
   }

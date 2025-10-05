@@ -10,6 +10,11 @@ import 'screens/login_screen.dart';
 import 'screens/forgot_password_screen.dart';
 import 'screens/admin_screen.dart';
 import 'screens/friends_screen.dart';
+import 'screens/restaurant_register_screen.dart';
+import 'screens/restaurant_dashboard_screen.dart';
+import 'screens/reservations_screen.dart';
+import 'services/auth_service_simple.dart';
+import 'models/user.dart';
 
 class FoodieApp extends StatelessWidget {
   const FoodieApp({super.key});
@@ -56,7 +61,7 @@ class FoodieApp extends StatelessWidget {
           foregroundColor: Colors.white,
         ),
       ),
-      home: const LoginScreen(),
+      home: const RoleBasedHome(),
       routes: {
         "/login": (_) => const LoginScreen(),
         "/auth": (_) => const AuthScreen(),
@@ -67,6 +72,10 @@ class FoodieApp extends StatelessWidget {
         "/my-lists": (_) => const MyListsScreen(),
         "/metrics": (_) => const MetricsDashboardScreen(),
         "/friends": (_) => const FriendsScreen(),
+        "/restaurant-register": (_) => const RestaurantRegisterScreen(),
+        "/restaurant-dashboard": (_) => const RestaurantDashboardScreen(),
+        "/reservations": (_) => const ReservationsScreen(),
+        "/home": (_) => const HomeScreen(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/restaurant-detail') {
@@ -78,5 +87,57 @@ class FoodieApp extends StatelessWidget {
         return null;
       },
     );
+  }
+}
+
+class RoleBasedHome extends StatefulWidget {
+  const RoleBasedHome({super.key});
+
+  @override
+  State<RoleBasedHome> createState() => _RoleBasedHomeState();
+}
+
+class _RoleBasedHomeState extends State<RoleBasedHome> {
+  final AuthService _authService = AuthService();
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkUserRole();
+  }
+
+  Future<void> _checkUserRole() async {
+    await _authService.initialize();
+    setState(() {
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (!_authService.isAuthenticated) {
+      return const LoginScreen();
+    }
+
+    final user = _authService.currentUser;
+    if (user == null) {
+      return const LoginScreen();
+    }
+
+    // Redirecionar baseado no role
+    if (user.role.isRestaurantOwner) {
+      return const RestaurantDashboardScreen();
+    } else {
+      return const HomeScreen();
+    }
   }
 }

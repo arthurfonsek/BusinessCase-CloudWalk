@@ -24,18 +24,30 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
   Map<String, dynamic>? _gamificationData;
   bool _isLoading = true;
   String _error = '';
+  List<Map<String, dynamic>> _ledger = const [];
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _loadGamificationData();
+    _loadLedger();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadLedger() async {
+    if (!_authService.isAuthenticated) return;
+    try {
+      final data = await _gamificationService.getLedger();
+      if (mounted) setState(() => _ledger = data);
+    } catch (e) {
+      // Mantém silencioso na primeira carga; pode exibir erro sob demanda
+    }
   }
 
   Future<void> _loadGamificationData() async {
@@ -111,7 +123,10 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
     
     final userTier = _gamificationData!['user_tier'];
     final tierName = userTier['tier_name'] ?? 'Iniciante';
-    final tierColor = Color(int.parse(userTier['tier_color']?.replaceAll('#', '0xFF') ?? '0xFF8B4513'));
+    // Use a rich golden color for Gold tier
+    final tierColor = tierName == 'Ouro' 
+        ? const Color(0xFFDAA520) // Goldenrod - rich gold with good readability
+        : Color(int.parse(userTier['tier_color']?.replaceAll('#', '0xFF') ?? '0xFF8B4513'));
     final currentReferrals = userTier['current_referrals'] ?? 0;
     final totalPoints = userTier['total_points'] ?? 0;
     
@@ -399,12 +414,12 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
         ),
         Expanded(
           child: GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: _getCrossAxisCount(),
-              childAspectRatio: 1.2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100), // More bottom padding
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3, // Force 3 columns for better readability
+              childAspectRatio: 0.65, // Even more compact
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
             ),
             itemCount: availableRewards.length,
             itemBuilder: (context, index) {
@@ -422,7 +437,7 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
 
   Widget _buildRewardCard(Map<String, dynamic> reward, bool canAfford, bool isClaimed) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isClaimed ? Colors.green.shade50 : Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -453,37 +468,37 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
                 const Icon(Icons.check_circle, color: Colors.green, size: 20),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             reward['name'] ?? '',
             style: const TextStyle(
               fontWeight: FontWeight.bold,
-              fontSize: 14,
+              fontSize: 12,
             ),
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             reward['description'] ?? '',
             style: TextStyle(
               color: Colors.grey.shade600,
-              fontSize: 12,
+              fontSize: 10,
             ),
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
-          const Spacer(),
+          const SizedBox(height: 4),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: const EdgeInsets.symmetric(vertical: 4),
             decoration: BoxDecoration(
               color: isClaimed 
                 ? Colors.green 
                 : canAfford 
                   ? const Color(0xFFd60000) 
                   : Colors.grey,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
               isClaimed 
@@ -493,12 +508,12 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
               style: const TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
-                fontSize: 12,
+                fontSize: 10,
               ),
             ),
           ),
           if (!isClaimed && canAfford)
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
           if (!isClaimed && canAfford)
             SizedBox(
               width: double.infinity,
@@ -507,9 +522,9 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
                 onPressed: () => _claimReward(reward['id']),
                 backgroundColor: const Color(0xFFd60000),
                 textColor: Colors.white,
-                borderRadius: 6,
-                height: 28,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                borderRadius: 3,
+                height: 20,
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
               ),
             ),
         ],
@@ -573,6 +588,90 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
           ),
       ],
     );
+  }
+
+  Widget _buildLedgerList() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            'Histórico de Pontos',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        if (_ledger.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(
+              child: Text(
+                'Nenhum lançamento ainda',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _ledger.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final it = _ledger[index];
+              final reason = (it['reason'] ?? '').toString();
+              final points = (it['points'] ?? 0) as int;
+              final createdAt = (it['created_at'] ?? '').toString();
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: const Color(0xFFd60000).withOpacity(0.1),
+                  child: Icon(
+                    points >= 0 ? Icons.add : Icons.remove,
+                    color: const Color(0xFFd60000),
+                  ),
+                ),
+                title: Text(_formatReason(reason)),
+                subtitle: Text(_formatDate(createdAt)),
+                trailing: Text(
+                  points >= 0 ? '+$points' : '$points',
+                  style: TextStyle(
+                    color: points >= 0 ? Colors.green : Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  String _formatReason(String r) {
+    switch (r) {
+      case 'invite_registered':
+        return 'Indicação registrada';
+      case 'invite_first_review':
+        return 'Primeira avaliação do indicado';
+      case 'achievement_unlocked':
+        return 'Conquista desbloqueada';
+      case 'reward_claimed':
+        return 'Resgate de recompensa';
+      default:
+        return r.replaceAll('_', ' ');
+    }
+  }
+
+  String _formatDate(String iso) {
+    if (iso.isEmpty) return '';
+    try {
+      final dt = DateTime.parse(iso);
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return iso;
+    }
   }
 
   Widget _buildAchievementCard(Map<String, dynamic> achievement) {
@@ -709,6 +808,7 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
             Tab(text: 'Indicar', icon: Icon(Icons.share)),
             Tab(text: 'Recompensas', icon: Icon(Icons.card_giftcard)),
             Tab(text: 'Conquistas', icon: Icon(Icons.emoji_events)),
+            Tab(text: 'Histórico', icon: Icon(Icons.receipt_long)),
           ],
         ),
       ),
@@ -732,6 +832,8 @@ class _RewardsScreenState extends State<RewardsScreen> with TickerProviderStateM
           _buildRewardsGrid(),
           // Tab Conquistas
           _buildAchievementsList(),
+          // Tab Extrato
+          SingleChildScrollView(child: _buildLedgerList()),
         ],
       ),
       floatingActionButton: FloatingActionButton(

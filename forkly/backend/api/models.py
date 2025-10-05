@@ -3,9 +3,15 @@ from django.db import models
 from django.contrib.auth.models import User
 
 class Profile(models.Model):
+    ROLE_CHOICES = [
+        ('user', 'Usuário Comum'),
+        ('restaurant_owner', 'Proprietário de Restaurante'),
+    ]
+    
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     referral_code = models.CharField(max_length=12, unique=True)
     points = models.IntegerField(default=0)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='user')
 
 class Restaurant(models.Model):
     name = models.CharField(max_length=140)
@@ -158,3 +164,104 @@ class AIMessage(models.Model):
     
     class Meta:
         ordering = ['created_at']
+
+# Sistema de Restaurantes e Reservas
+class RestaurantOwner(models.Model):
+    """Proprietário/Gerente do restaurante"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='restaurant_owner')
+    restaurant = models.OneToOneField(Restaurant, on_delete=models.CASCADE, related_name='owner')
+    is_verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.restaurant.name}"
+
+class RestaurantProfile(models.Model):
+    """Perfil detalhado do restaurante"""
+    restaurant = models.OneToOneField(Restaurant, on_delete=models.CASCADE, related_name='profile')
+    description = models.TextField(blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    email = models.EmailField(blank=True)
+    website = models.URLField(blank=True)
+    opening_hours = models.JSONField(default=dict, blank=True)  # {"monday": {"open": "09:00", "close": "22:00"}}
+    average_ticket = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)  # Ticket médio
+    capacity = models.IntegerField(default=0)  # Capacidade máxima
+    has_delivery = models.BooleanField(default=False)
+    has_takeaway = models.BooleanField(default=True)
+    has_reservations = models.BooleanField(default=True)
+    payment_methods = models.JSONField(default=list, blank=True)  # ["cash", "credit", "pix"]
+    special_features = models.JSONField(default=list, blank=True)  # ["wifi", "parking", "accessibility"]
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Profile for {self.restaurant.name}"
+
+class Reservation(models.Model):
+    """Reserva de mesa no restaurante"""
+    STATUS_CHOICES = [
+        ('pending', 'Pendente'),
+        ('confirmed', 'Confirmada'),
+        ('cancelled', 'Cancelada'),
+        ('completed', 'Concluída'),
+        ('no_show', 'Não compareceu'),
+    ]
+    
+    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE, related_name='reservations')
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reservations')
+    date = models.DateField()
+    time = models.TimeField()
+    party_size = models.IntegerField()  # Número de pessoas
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    special_requests = models.TextField(blank=True)
+    customer_phone = models.CharField(max_length=20, blank=True)
+    customer_email = models.EmailField(blank=True)
+    estimated_value = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)  # Valor estimado
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Reserva {self.id} - {self.restaurant.name} - {self.customer.username}"
+
+class RestaurantAnalytics(models.Model):
+    """Estatísticas e analytics do restaurante"""
+    restaurant = models.OneToOneField(Restaurant, on_delete=models.CASCADE, related_name='analytics')
+    total_reservations = models.IntegerField(default=0)
+    total_revenue = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    average_rating = models.FloatField(default=0.0)
+    total_reviews = models.IntegerField(default=0)
+    times_recommended = models.IntegerField(default=0)  # Quantas vezes foi recomendado
+    times_in_lists = models.IntegerField(default=0)  # Quantas vezes apareceu em listas
+    last_updated = models.DateTimeField(auto_now=True)
+    
+    def update_stats(self):
+        """Atualiza as estatísticas do restaurante"""
+        # Contar reservas
+        self.total_reservations = Reservation.objects.filter(
+            restaurant=self.restaurant,
+            status__in=['confirmed', 'completed']
+        ).count()
+        
+        # Calcular receita total (baseado no ticket médio)
+        if self.restaurant.profile.average_ticket > 0:
+            self.total_revenue = self.total_reservations * self.restaurant.profile.average_ticket
+        
+        # Atualizar rating
+        reviews = Review.objects.filter(restaurant=self.restaurant)
+        if reviews.exists():
+            self.total_reviews = reviews.count()
+            self.average_rating = sum(review.rating for review in reviews) / self.total_reviews
+        
+        # Contar recomendações (vezes que apareceu em listas)
+        self.times_in_lists = ListItem.objects.filter(restaurant=self.restaurant).count()
+        
+        # Contar vezes recomendado (simplificado - pode ser melhorado)
+        self.times_recommended = self.times_in_lists
+        
+        self.save()
+    
+    def __str__(self):
+        return f"Analytics for {self.restaurant.name}"

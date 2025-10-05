@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api.dart';
+import '../services/auth_service_simple.dart';
 import '../widgets/responsive_button.dart';
 import '../widgets/primary_button.dart';
 import '../widgets/forkly_logo.dart';
@@ -60,6 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       
       // Register user
       await api.register(
+        _nameController.text.trim(),
         _emailController.text.trim(),
         _passwordController.text,
         referral: _referralCodeController.text.trim().isNotEmpty 
@@ -74,7 +76,28 @@ class _RegisterScreenState extends State<RegisterScreen> {
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pop(context);
+        
+        // Fazer login automático após cadastro
+        try {
+          final authService = AuthService();
+          await authService.initialize();
+          final loginSuccess = await authService.login(
+            _emailController.text.trim(),
+            _passwordController.text,
+          );
+          
+          if (loginSuccess && mounted) {
+            Navigator.pushReplacementNamed(context, '/home');
+          } else if (mounted) {
+            // Se o login automático falhar, ainda redireciona para home
+            Navigator.pushReplacementNamed(context, '/home');
+          }
+        } catch (e) {
+          // Se houver erro no login automático, ainda redireciona
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/home');
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -130,12 +153,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               Center(
                 child: Column(
                   children: [
-                    Icon(
-                      Icons.restaurant,
-                      size: 80,
-                      color: const Color(0xFFd60000),
-                    ),
-                    const SizedBox(height: 16),
+                    // Mantém somente o logo com borda/vermelha
                     ForklyLogoVertical(
                       fontSize: 32,
                       color: const Color(0xFFd60000),
@@ -152,6 +170,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               
               const SizedBox(height: 40),
+              
+              
+              const SizedBox(height: 24),
               
               // Name field
               TextFormField(

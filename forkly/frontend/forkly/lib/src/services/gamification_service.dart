@@ -13,6 +13,16 @@ class GamificationService {
     }
   }
 
+  /// Lista o histórico de pontos do usuário (RewardLedger)
+  Future<List<Map<String, dynamic>>> getLedger() async {
+    try {
+      final response = await _api.get('/gamification/ledger/');
+      return List<Map<String, dynamic>>.from(response.data);
+    } catch (e) {
+      throw Exception('Erro ao carregar extrato: $e');
+    }
+  }
+
   /// Resgata uma recompensa
   Future<Map<String, dynamic>> claimReward(int rewardId) async {
     try {

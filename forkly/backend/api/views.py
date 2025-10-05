@@ -13,13 +13,29 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger, Tier, UserTier, Achievement, UserAchievement, Reward, UserReward, Friendship, AIConversation, AIMessage
+from .models import Profile, Restaurant, Review, List, ListItem, Referral, RewardLedger, Tier, UserTier, Achievement, UserAchievement, Reward, UserReward, Friendship, AIConversation, AIMessage, RestaurantOwner, RestaurantProfile, Reservation, RestaurantAnalytics
 from .serializers import *
 from .ai_gamification_service import AIGamificationService
+from .ai_restaurant_service import AIRestaurantService
 from .utils import gen_code, haversine
 
 load_dotenv()
 OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:43495")
+
+def _send_push_notification(user: User, title: str, body: str):
+    """Simple pseudo-push: send email if available (stub for FCM/OneSignal)."""
+    try:
+        if user.email:
+            send_mail(
+                subject=title,
+                message=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=True,
+            )
+    except Exception:
+        pass
 
 class RestaurantViewSet(viewsets.ModelViewSet):
     queryset = Restaurant.objects.all()
@@ -145,7 +161,8 @@ def login_view(request):
                 'last_name': user.last_name,
                 'profile': {
                     'referral_code': profile.referral_code,
-                    'points': profile.points
+                    'points': profile.points,
+                    'role': profile.role
                 }
             }
         })
@@ -183,16 +200,19 @@ def register_view(request):
                     meta={"invitee": user.id}
                 )
         
-        token = Token.objects.create(user=user)
+        # Gerar JWT token
+        refresh = RefreshToken.for_user(user)
         return Response({
-            'token': token.key,
+            'token': str(refresh.access_token),
+            'refresh': str(refresh),
             'user': {
                 'id': user.id,
                 'username': user.username,
                 'email': user.email,
                 'profile': {
                     'referral_code': profile.referral_code,
-                    'points': profile.points
+                    'points': profile.points,
+                    'role': profile.role
                 }
             }
         }, status=status.HTTP_201_CREATED)
@@ -201,10 +221,8 @@ def register_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def logout_view(request):
-    try:
-        request.user.auth_token.delete()
-    except:
-        pass
+    # Para JWT, não precisamos fazer nada especial no logout
+    # O token será invalidado automaticamente quando expirar
     logout(request)
     return Response({'message': 'Logout realizado com sucesso'})
 
@@ -460,7 +478,14 @@ def gamification_stats_view(request):
     user_tier.save()
     
     # Atualizar tier se necessário
-    user_tier.update_tier()
+    tier_before = user_tier.tier
+    upgraded = user_tier.update_tier()
+    if upgraded and user_tier.tier != tier_before:
+        _send_push_notification(
+            user,
+            title='Parabéns! Você subiu de tier',
+            body=f"Você alcançou o tier {user_tier.tier.name}. Continue convidando amigos!",
+        )
     
     # Buscar conquistas do usuário
     user_achievements = UserAchievement.objects.filter(user=user).order_by('-unlocked_at')
@@ -490,6 +515,61 @@ def gamification_stats_view(request):
     }
     
     return Response(data)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def gamification_ledger_view(request):
+    """Retorna o extrato de pontos (RewardLedger) do usuário autenticado"""
+    entries = RewardLedger.objects.filter(user=request.user).order_by('-created_at')
+    data = RewardLedgerSerializer(entries, many=True).data
+    return Response(data)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def notifications_feed_view(request):
+    """Feed básico de notificações derivadas (últimos 30 dias)."""
+    user = request.user
+    from django.utils import timezone
+    from datetime import timedelta
+    since = timezone.now() - timedelta(days=30)
+
+    recent_achievements = UserAchievement.objects.filter(user=user, unlocked_at__gte=since).order_by('-unlocked_at')
+    achievements_payload = [
+        {
+            'type': 'achievement',
+            'title': f"Conquista desbloqueada: {ua.achievement.name}",
+            'body': ua.achievement.description,
+            'created_at': ua.unlocked_at.isoformat(),
+        }
+        for ua in recent_achievements
+    ]
+
+    user_tier, _ = UserTier.objects.get_or_create(
+        user=user, defaults={'tier': Tier.objects.filter(min_referrals=0).first()}
+    )
+    referrals_count = Friendship.objects.filter(user=user, is_referred=True).count()
+    next_tier = Tier.objects.filter(min_referrals__gt=user_tier.tier.min_referrals).order_by('min_referrals').first() if user_tier.tier else None
+    tier_payload = []
+    if next_tier:
+        to_next = max(0, next_tier.min_referrals - referrals_count)
+        tier_payload.append({
+            'type': 'tier_progress',
+            'title': f"Faltam {to_next} referrals para {next_tier.name}",
+            'body': 'Compartilhe seu link de convite para avançar de tier.',
+            'created_at': timezone.now().isoformat(),
+        })
+
+    total_points = Profile.objects.get(user=user).points
+    rewards_payload = []
+    if total_points > 0:
+        rewards_payload.append({
+            'type': 'points',
+            'title': f"Você tem {total_points} pontos",
+            'body': 'Confira as recompensas disponíveis para resgatar.',
+            'created_at': timezone.now().isoformat(),
+        })
+
+    return Response({'notifications': achievements_payload + tier_payload + rewards_payload})
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -624,6 +704,21 @@ def leaderboard_view(request):
         ]
     })
 
+# ===== Referral/Convite =====
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def my_invite_link_view(request):
+    """Retorna um link curto de convite com o referral_code do usuário"""
+    try:
+        profile = Profile.objects.get(user=request.user)
+        code = profile.referral_code
+        # Link curto estilo /i/<code> que front pode resolver/capturar
+        short_path = f"/i/{code}"
+        full_url = f"{FRONTEND_BASE_URL}{short_path}"
+        return Response({'code': code, 'short_path': short_path, 'url': full_url})
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def check_achievements_view(request):
@@ -669,7 +764,11 @@ def check_achievements_view(request):
                     points=achievement.points_reward,
                     meta={'achievement_id': achievement.id, 'achievement_name': achievement.name}
                 )
-            
+            _send_push_notification(
+                user,
+                title=f"Conquista desbloqueada: {achievement.name}",
+                body=f"{achievement.description} (+{achievement.points_reward} pontos)",
+            )
             new_achievements.append(UserAchievementSerializer(user_achievement).data)
     
     return Response({
@@ -684,12 +783,23 @@ def check_achievements_view(request):
 def start_ai_conversation_view(request):
     """Inicia uma nova conversa com IA"""
     try:
-        ai_service = AIGamificationService()
-        conversation = ai_service.create_conversation(request.user)
-        
-        # Mensagem de boas-vindas
-        welcome_message = ai_service.generate_ai_response(request.user, "Olá! Como posso te ajudar com gamificação?")
-        ai_service.add_message(conversation, 'assistant', welcome_message, 'text')
+        # Escolher serviço conforme role
+        service: object
+        if Profile.objects.get(user=request.user).role == 'restaurant_owner':
+            service = AIRestaurantService()
+        else:
+            service = AIGamificationService()
+
+        conversation = service.create_conversation(request.user)
+
+        # Mensagem de boas-vindas específica
+        welcome_prompt = (
+            "Olá! Posso te ajudar com desempenho do restaurante. Pergunte por 'resumo do mês', reservas, receita e avaliação."
+            if isinstance(service, AIRestaurantService) else
+            "Olá! Como posso te ajudar com gamificação?"
+        )
+        welcome_message = service.generate_ai_response(request.user, welcome_prompt)
+        service.add_message(conversation, 'assistant', welcome_message, 'text')
         
         serializer = AIConversationSerializer(conversation)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -705,7 +815,12 @@ def send_ai_message_view(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     try:
-        ai_service = AIGamificationService()
+        # Escolher serviço conforme role
+        service: object
+        if Profile.objects.get(user=request.user).role == 'restaurant_owner':
+            service = AIRestaurantService()
+        else:
+            service = AIGamificationService()
         message = serializer.validated_data['message']
         conversation_id = serializer.validated_data.get('conversation_id')
         
@@ -720,17 +835,17 @@ def send_ai_message_view(request):
             except AIConversation.DoesNotExist:
                 return Response({'error': 'Conversa não encontrada'}, status=status.HTTP_404_NOT_FOUND)
         else:
-            conversation = ai_service.create_conversation(request.user)
+            conversation = service.create_conversation(request.user)
         
         # Adicionar mensagem do usuário
-        user_message = ai_service.add_message(conversation, 'user', message, 'text')
+        user_message = service.add_message(conversation, 'user', message, 'text')
         
         # Gerar resposta da IA
-        ai_response = ai_service.generate_ai_response(request.user, message)
-        ai_message = ai_service.add_message(conversation, 'assistant', ai_response, 'text')
+        ai_response = service.generate_ai_response(request.user, message)
+        ai_message = service.add_message(conversation, 'assistant', ai_response, 'text')
         
         # Obter histórico da conversa
-        conversation_history = ai_service.get_conversation_history(conversation)
+        conversation_history = service.get_conversation_history(conversation)
         
         return Response({
             'conversation_id': conversation.session_id,
@@ -799,49 +914,414 @@ def end_ai_conversation_view(request, conversation_id):
 def get_ai_recommendations_view(request):
     """Obtém recomendações personalizadas da IA"""
     try:
-        ai_service = AIGamificationService()
-        context = ai_service.get_user_gamification_context(request.user)
-        
-        if 'error' in context:
-            return Response({'error': context['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        # Gerar recomendações baseadas no contexto
-        recommendations = []
-        
-        # Recomendação de tier
-        if context['next_tier']:
-            recommendations.append({
-                'type': 'tier_progress',
-                'title': f'Progredir para {context["next_tier"]}',
-                'description': f'Você precisa de {context["referrals_to_next"]} referrals para o próximo tier',
-                'action': 'Compartilhar código de referência',
-                'priority': 'high'
+        # Se for proprietário de restaurante, focar em métricas do restaurante
+        try:
+            owner = RestaurantOwner.objects.get(user=request.user)
+            restaurant = owner.restaurant
+            # Garantir analytics atualizados
+            restaurant.analytics.update_stats()
+            from django.utils import timezone
+            from datetime import timedelta
+            now = timezone.now()
+            month_ago = now - timedelta(days=30)
+            monthly_reservations = Reservation.objects.filter(
+                restaurant=restaurant,
+                created_at__gte=month_ago,
+                status__in=['confirmed', 'completed']
+            )
+            monthly_count = monthly_reservations.count()
+            monthly_revenue = float(restaurant.profile.average_ticket) * monthly_count
+            recent_no_shows = Reservation.objects.filter(
+                restaurant=restaurant,
+                created_at__gte=month_ago,
+                status='no_show'
+            ).count()
+            recommendations = [
+                {
+                    'type': 'restaurant_summary',
+                    'title': 'Resumo do mês',
+                    'description': f'{monthly_count} reservas concluídas/confirmadas; receita estimada R$ {monthly_revenue:.2f}',
+                    'priority': 'high'
+                },
+                {
+                    'type': 'no_show_alert',
+                    'title': 'No-shows no período',
+                    'description': f'{recent_no_shows} no-shows nos últimos 30 dias',
+                    'priority': 'medium'
+                },
+            ]
+            return Response({
+                'recommendations': recommendations,
+                'context': {
+                    'restaurant_id': restaurant.id,
+                    'restaurant_name': restaurant.name,
+                    'monthly_reservations': monthly_count,
+                    'monthly_revenue': monthly_revenue,
+                    'no_shows_30d': recent_no_shows,
+                }
             })
+        except RestaurantOwner.DoesNotExist:
+            # Caso padrão: gamificação para usuários comuns
+            ai_service = AIGamificationService()
+            context = ai_service.get_user_gamification_context(request.user)
+            
+            if 'error' in context:
+                return Response({'error': context['error']}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            recommendations = []
+            if context['next_tier']:
+                recommendations.append({
+                    'type': 'tier_progress',
+                    'title': f'Progredir para {context["next_tier"]}',
+                    'description': f'Você precisa de {context["referrals_to_next"]} referrals para o próximo tier',
+                    'action': 'Compartilhar código de referência',
+                    'priority': 'high'
+                })
+            if context['total_points'] > 0:
+                recommendations.append({
+                    'type': 'reward_suggestion',
+                    'title': 'Usar seus pontos',
+                    'description': f'Você tem {context["total_points"]} pontos para gastar',
+                    'action': 'Ver recompensas disponíveis',
+                    'priority': 'medium'
+                })
+            if context['achievements_count'] < 5:
+                recommendations.append({
+                    'type': 'achievement',
+                    'title': 'Desbloquear conquistas',
+                    'description': 'Complete ações para desbloquear novas conquistas',
+                    'action': 'Ver conquistas disponíveis',
+                    'priority': 'low'
+                })
+            return Response({'recommendations': recommendations, 'context': context})
         
-        # Recomendação de pontos
-        if context['total_points'] > 0:
-            recommendations.append({
-                'type': 'reward_suggestion',
-                'title': 'Usar seus pontos',
-                'description': f'Você tem {context["total_points"]} pontos para gastar',
-                'action': 'Ver recompensas disponíveis',
-                'priority': 'medium'
-            })
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# ===== SISTEMA DE RESTAURANTES E RESERVAS =====
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def register_restaurant_view(request):
+    """Registra um novo restaurante"""
+    try:
+        # Verificar se o usuário já possui um restaurante
+        if RestaurantOwner.objects.filter(user=request.user).exists():
+            return Response({'error': 'Você já possui um restaurante registrado'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Recomendação de conquistas
-        if context['achievements_count'] < 5:
-            recommendations.append({
-                'type': 'achievement',
-                'title': 'Desbloquear conquistas',
-                'description': 'Complete ações para desbloquear novas conquistas',
-                'action': 'Ver conquistas disponíveis',
-                'priority': 'low'
-            })
+        # Criar restaurante
+        restaurant_data = request.data.get('restaurant', {})
+        restaurant = Restaurant.objects.create(
+            name=restaurant_data.get('name'),
+            address=restaurant_data.get('address', ''),
+            lat=restaurant_data.get('lat', 0.0),
+            lng=restaurant_data.get('lng', 0.0),
+            categories=restaurant_data.get('categories', ''),
+            price_level=restaurant_data.get('price_level', 1),
+            rating_avg=0.0,
+            rating_count=0
+        )
         
-        return Response({
-            'recommendations': recommendations,
-            'context': context
-        })
+        # Criar perfil do restaurante
+        profile_data = request.data.get('profile', {})
+        RestaurantProfile.objects.create(
+            restaurant=restaurant,
+            description=profile_data.get('description', ''),
+            phone=profile_data.get('phone', ''),
+            email=profile_data.get('email', ''),
+            website=profile_data.get('website', ''),
+            opening_hours=profile_data.get('opening_hours', {}),
+            average_ticket=profile_data.get('average_ticket', 0.00),
+            capacity=profile_data.get('capacity', 0),
+            has_delivery=profile_data.get('has_delivery', False),
+            has_takeaway=profile_data.get('has_takeaway', True),
+            has_reservations=profile_data.get('has_reservations', True),
+            payment_methods=profile_data.get('payment_methods', []),
+            special_features=profile_data.get('special_features', [])
+        )
+        
+        # Criar proprietário
+        RestaurantOwner.objects.create(
+            user=request.user,
+            restaurant=restaurant,
+            is_verified=False
+        )
+        
+        # Atualizar role do usuário para restaurant_owner
+        profile = Profile.objects.get(user=request.user)
+        profile.role = 'restaurant_owner'
+        profile.save()
+        
+        # Criar analytics
+        RestaurantAnalytics.objects.create(restaurant=restaurant)
+        
+        serializer = RestaurantDetailSerializer(restaurant)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def my_restaurant_view(request):
+    """Obtém dados do restaurante do usuário"""
+    try:
+        restaurant_owner = RestaurantOwner.objects.get(user=request.user)
+        restaurant = restaurant_owner.restaurant
+        
+        # Atualizar analytics
+        restaurant.analytics.update_stats()
+        
+        serializer = RestaurantDetailSerializer(restaurant)
+        return Response(serializer.data)
+        
+    except RestaurantOwner.DoesNotExist:
+        return Response({'error': 'Restaurante não encontrado'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['PUT'])
+@permission_classes([permissions.IsAuthenticated])
+def update_restaurant_view(request):
+    """Atualiza dados do restaurante"""
+    try:
+        restaurant_owner = RestaurantOwner.objects.get(user=request.user)
+        restaurant = restaurant_owner.restaurant
+        
+        # Atualizar dados básicos do restaurante
+        restaurant_data = request.data.get('restaurant', {})
+        for field, value in restaurant_data.items():
+            if hasattr(restaurant, field):
+                setattr(restaurant, field, value)
+        restaurant.save()
+        
+        # Atualizar perfil do restaurante
+        profile_data = request.data.get('profile', {})
+        if hasattr(restaurant, 'profile'):
+            for field, value in profile_data.items():
+                if hasattr(restaurant.profile, field):
+                    setattr(restaurant.profile, field, value)
+            restaurant.profile.save()
+        
+        serializer = RestaurantDetailSerializer(restaurant)
+        return Response(serializer.data)
+        
+    except RestaurantOwner.DoesNotExist:
+        return Response({'error': 'Restaurante não encontrado'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def restaurant_dashboard_view(request):
+    """Dashboard do restaurante com estatísticas"""
+    try:
+        restaurant_owner = RestaurantOwner.objects.get(user=request.user)
+        restaurant = restaurant_owner.restaurant
+        
+        # Atualizar analytics
+        restaurant.analytics.update_stats()
+        
+        # Reservas recentes
+        recent_reservations = Reservation.objects.filter(
+            restaurant=restaurant
+        ).order_by('-created_at')[:10]
+        
+        # Estatísticas mensais
+        from django.utils import timezone
+        from datetime import timedelta
+        now = timezone.now()
+        month_ago = now - timedelta(days=30)
+        
+        monthly_reservations = Reservation.objects.filter(
+            restaurant=restaurant,
+            created_at__gte=month_ago,
+            status__in=['confirmed', 'completed']
+        ).count()
+        
+        monthly_revenue = monthly_reservations * float(restaurant.profile.average_ticket)
+        
+        # Calcular projeção inteligente para o próximo mês
+        two_months_ago = now - timedelta(days=60)
+        previous_month_reservations = Reservation.objects.filter(
+            restaurant=restaurant,
+            created_at__gte=two_months_ago,
+            created_at__lt=month_ago,
+            status__in=['confirmed', 'completed']
+        ).count()
+        
+        # Calcular tendência
+        if previous_month_reservations > 0:
+            growth_rate = (monthly_reservations - previous_month_reservations) / previous_month_reservations
+        else:
+            growth_rate = 0.0
+        
+        # Aplicar lift de exposição em listas
+        analytics = restaurant.analytics
+        times_in_lists = float(analytics.times_in_lists or 0)
+        times_recommended = float(analytics.times_recommended or 0)
+        k = 200.0
+        raw_lift = (times_in_lists + times_recommended) / k
+        lift = max(0.0, min(raw_lift, 0.3))  # Máximo 30% de lift
+        
+        # Projeção baseada na tendência real + lift
+        trend_factor = 1.0 + (growth_rate * 0.5)  # Suavizar tendência
+        lift_factor = 1.0 + lift
+        projected_revenue = float(monthly_revenue) * trend_factor * lift_factor
+        
+        monthly_stats = {
+            'reservations': monthly_reservations,
+            'revenue': float(monthly_revenue),
+            'period': '30 dias',
+            'projection': {
+                'next_month_revenue': projected_revenue,
+                'growth_rate': growth_rate,
+                'lift_factor': lift,
+                'trend_direction': 'up' if growth_rate > 0.05 else 'down' if growth_rate < -0.05 else 'stable'
+            }
+        }
+        
+        data = {
+            'restaurant': RestaurantDetailSerializer(restaurant).data,
+            'analytics': RestaurantAnalyticsSerializer(restaurant.analytics).data,
+            'recent_reservations': ReservationSerializer(recent_reservations, many=True).data,
+            'monthly_stats': monthly_stats
+        }
+        
+        return Response(data)
+        
+    except RestaurantOwner.DoesNotExist:
+        return Response({'error': 'Restaurante não encontrado'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def create_reservation_view(request):
+    """Cria uma nova reserva"""
+    try:
+        # Impedir que proprietários façam reservas (somente clientes)
+        if RestaurantOwner.objects.filter(user=request.user).exists():
+            return Response({'error': 'Proprietários de restaurante não podem criar reservas.'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = ReservationCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            # Verificar se o restaurante aceita reservas
+            restaurant = serializer.validated_data['restaurant']
+            if not restaurant.profile.has_reservations:
+                return Response({'error': 'Este restaurante não aceita reservas'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Criar reserva
+            reservation = Reservation.objects.create(
+                restaurant=restaurant,
+                customer=request.user,
+                date=serializer.validated_data['date'],
+                time=serializer.validated_data['time'],
+                party_size=serializer.validated_data['party_size'],
+                special_requests=serializer.validated_data.get('special_requests', ''),
+                customer_phone=serializer.validated_data.get('customer_phone', ''),
+                customer_email=serializer.validated_data.get('customer_email', ''),
+                estimated_value=restaurant.profile.average_ticket * serializer.validated_data['party_size']
+            )
+            
+            # Atualizar analytics do restaurante
+            restaurant.analytics.update_stats()
+            
+            response_serializer = ReservationSerializer(reservation)
+            return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def my_reservations_view(request):
+    """Lista reservas do usuário"""
+    try:
+        reservations = Reservation.objects.filter(customer=request.user).order_by('-created_at')
+        serializer = ReservationSerializer(reservations, many=True)
+        return Response(serializer.data)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def restaurant_reservations_view(request):
+    """Lista reservas do restaurante do usuário"""
+    try:
+        restaurant_owner = RestaurantOwner.objects.get(user=request.user)
+        reservations = Reservation.objects.filter(
+            restaurant=restaurant_owner.restaurant
+        ).order_by('-created_at')
+        
+        serializer = ReservationSerializer(reservations, many=True)
+        return Response(serializer.data)
+        
+    except RestaurantOwner.DoesNotExist:
+        return Response({'error': 'Restaurante não encontrado'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['PUT'])
+@permission_classes([permissions.IsAuthenticated])
+def update_reservation_status_view(request, reservation_id):
+    """Atualiza status de uma reserva (apenas proprietário do restaurante)"""
+    try:
+        restaurant_owner = RestaurantOwner.objects.get(user=request.user)
+        
+        reservation = Reservation.objects.get(
+            id=reservation_id,
+            restaurant=restaurant_owner.restaurant
+        )
+        
+        new_status = request.data.get('status')
+        if new_status not in ['pending', 'confirmed', 'cancelled', 'completed', 'no_show']:
+            return Response({'error': 'Status inválido'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        reservation.status = new_status
+        reservation.save()
+        
+        # Atualizar analytics
+        restaurant_owner.restaurant.analytics.update_stats()
+        
+        serializer = ReservationSerializer(reservation)
+        return Response(serializer.data)
+        
+    except RestaurantOwner.DoesNotExist:
+        return Response({'error': 'Restaurante não encontrado'}, status=status.HTTP_404_NOT_FOUND)
+    except Reservation.DoesNotExist:
+        return Response({'error': 'Reserva não encontrada'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def restaurant_detail_view(request, restaurant_id):
+    """Detalhes de um restaurante específico"""
+    try:
+        restaurant = Restaurant.objects.get(id=restaurant_id)
+        serializer = RestaurantDetailSerializer(restaurant)
+        return Response(serializer.data)
+        
+    except Restaurant.DoesNotExist:
+        return Response({'error': 'Restaurante não encontrado'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def restaurants_with_reservations_view(request):
+    """Lista restaurantes que aceitam reservas"""
+    try:
+        restaurants = Restaurant.objects.filter(
+            profile__has_reservations=True
+        ).order_by('-rating_avg')
+        
+        serializer = RestaurantDetailSerializer(restaurants, many=True)
+        return Response(serializer.data)
         
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

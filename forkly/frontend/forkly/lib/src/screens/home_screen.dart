@@ -6,6 +6,8 @@ import '../widgets/primary_button.dart';
 import '../widgets/forkly_logo.dart';
 import 'map_widget.dart';
 import '../services/api.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter/services.dart';
 import '../services/ai_search_parser.dart';
 import '../services/auth_service_simple.dart';
 import 'network_recommendations_screen.dart';
@@ -27,6 +29,96 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isSearching = false;
   String _lastSearchQuery = '';
   SearchQuery? _currentSearchQuery;
+
+  Future<void> _shareInvite() async {
+    try {
+      final link = await _api.getMyInviteLink();
+      final url = (link['url'] ?? '').toString();
+      final code = (link['code'] ?? '').toString();
+      if (url.isEmpty || code.isEmpty) {
+        throw Exception('Link de convite indisponível');
+      }
+      if (!mounted) return;
+      showModalBottomSheet(
+        context: context,
+        showDragHandle: true,
+        builder: (ctx) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Compartilhar convite', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const Text('Seu código:', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFd60000).withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(code, style: const TextStyle(letterSpacing: 0.5)),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'Copiar código',
+                        icon: const Icon(Icons.copy),
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: code));
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Código copiado')),
+                            );
+                          }
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SelectableText('Link: $url'),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await Clipboard.setData(ClipboardData(text: url));
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Link copiado')),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.link),
+                        label: const Text('Copiar link'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton.icon(
+                        onPressed: () async {
+                          await Share.share('Use meu código $code para entrar no Forkly: $url');
+                        },
+                        icon: const Icon(Icons.share),
+                        label: const Text('Compartilhar'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Falha ao compartilhar convite: $e')),
+      );
+    }
+  }
 
   Future<void> _loadNearby() async {
     final data = await _api.nearby(_centerLat, _centerLng, radius: 500); // Reduzido de 1500 para 500
@@ -119,6 +211,72 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         actions: [
+          if (AuthService().isAuthenticated && AuthService().currentUser?.role.isRestaurantOwner != true)
+            IconButton(
+              tooltip: 'Notificações',
+              icon: const Icon(Icons.notifications),
+              onPressed: () async {
+                try {
+                  final notifs = await _api.getNotificationsFeed();
+                  if (!mounted) return;
+                  showModalBottomSheet(
+                    context: context,
+                    showDragHandle: true,
+                    isScrollControlled: true,
+                    builder: (ctx) {
+                      return SafeArea(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Notificações', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 12),
+                              if (notifs.isEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 24),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.notifications_off, color: Colors.grey[500]),
+                                      const SizedBox(width: 8),
+                                      Text('Sem notificações recentes', style: TextStyle(color: Colors.grey[600])),
+                                    ],
+                                  ),
+                                )
+                              else
+                                Flexible(
+                                  child: ListView.separated(
+                                    shrinkWrap: true,
+                                    itemCount: notifs.length,
+                                    separatorBuilder: (_, __) => const Divider(height: 1),
+                                    itemBuilder: (ctx, i) {
+                                      final n = notifs[i] as Map;
+                                      final icon = n['type'] == 'achievement'
+                                          ? Icons.emoji_events
+                                          : (n['type'] == 'tier_progress' ? Icons.trending_up : Icons.star);
+                                      return ListTile(
+                                        leading: Icon(icon, color: const Color(0xFFd60000)),
+                                        title: Text(n['title']?.toString() ?? ''),
+                                        subtitle: Text(n['body']?.toString() ?? ''),
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Erro ao carregar notificações: $e')),
+                  );
+                }
+              },
+            ),
           _buildAuthActions(isSmallScreen),
         ],
       ),
@@ -468,12 +626,40 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
+          if (AuthService().currentUser?.role.isRestaurantOwner != true)
+            ListTile(
+              leading: const Icon(Icons.share, color: Color(0xFFd60000)),
+              title: const Text('Convidar amigos'),
+              onTap: () async {
+                Navigator.pop(context);
+                await _shareInvite();
+              },
+            ),
+          if (AuthService().currentUser?.role.isRestaurantOwner == true)
+            ListTile(
+              leading: const Icon(Icons.analytics, color: Color(0xFFd60000)),
+              title: const Text('Métricas'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/metrics');
+              },
+            ),
+          const Divider(),
+          if (AuthService().currentUser?.role.isRestaurantOwner == true)
+            ListTile(
+              leading: const Icon(Icons.restaurant, color: Color(0xFFd60000)),
+              title: const Text('Meu Restaurante'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/restaurant-dashboard');
+              },
+            ),
           ListTile(
-            leading: const Icon(Icons.analytics, color: Color(0xFFd60000)),
-            title: const Text('Métricas'),
+            leading: const Icon(Icons.book_online, color: Color(0xFFd60000)),
+            title: const Text('Reservas'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.pushNamed(context, '/metrics');
+              Navigator.pushNamed(context, '/reservations');
             },
           ),
         ],
@@ -516,6 +702,12 @@ class _HomeScreenState extends State<HomeScreen> {
               MaterialPageRoute(builder: (context) => const PopularRestaurantsScreen()),
             );
           },
+        ),
+        const SizedBox(height: 12),
+        RectangularButton(
+          title: 'Fazer Reserva',
+          icon: Icons.book_online,
+          onTap: () => Navigator.pushNamed(context, '/reservations'),
         ),
       ],
     );

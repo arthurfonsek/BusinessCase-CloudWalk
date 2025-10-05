@@ -1,192 +1,257 @@
-# 🍽️ FoodieMap - MVP Multiplataforma
+# Forkly — Cross-Platform Restaurant Discovery and Referral MVP
 
-Um aplicativo de descoberta de restaurantes construído com **Flutter** e **Django**, demonstrando desenvolvimento multiplataforma com código único.
+Forkly is a cross-platform restaurant discovery application built with Flutter (frontend) and Django (backend). It demonstrates a member‑get‑member growth model with referral tracking, gamification, and an AI assistant for insights.
 
-## 🚀 **Tecnologias**
+## Technologies
 
-### **Frontend**
-- **Flutter** - Framework multiplataforma
-- **Dart** - Linguagem de programação
-- **Google Maps** - Integração de mapas
-- **Material Design** - Interface moderna
+### Frontend
+- Flutter
+- Dart
+- Google Maps integration
+- Material Design UI
 
-### **Backend**
-- **Django** - Framework web Python
-- **Django REST Framework** - API REST
-- **SQLite** - Database (desenvolvimento)
-- **JWT** - Autenticação
+### Backend
+- Django
+- Django REST Framework
+- SQLite (development) / PostgreSQL (production)
+- JWT authentication (Simple JWT)
+- Redis caching (optional)
 
-## 📱 **Plataformas Suportadas**
+## Supported Platforms
 
-| Plataforma | Status | Demonstração |
-|------------|--------|---------------|
-| **Web** | ✅ **FUNCIONANDO** | Chrome com Google Maps |
-| **Linux Desktop** | ✅ **FUNCIONANDO** | Interface nativa |
-| **Android** | ✅ **COMPATÍVEL** | Código 100% compatível |
-| **iOS** | ✅ **COMPATÍVEL** | Código 100% compatível |
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Web | Supported | Chrome with Google Maps |
+| Linux Desktop | Supported | Native windowed UI |
+| Android | Compatible | Single codebase |
+| iOS | Compatible | Single codebase |
 
-## 🎯 **Funcionalidades Implementadas**
+## Features
 
-### **🗺️ Sistema de Mapas**
-- ✅ **Google Maps** integrado
-- ✅ **Pesquisa de restaurantes** em tempo real
-- ✅ **Marcadores interativos** no mapa
-- ✅ **Navegação** por coordenadas
+### Maps and Search
+- Google Maps integration
+- Real-time restaurant search and filters (by location and category)
+- Distance-aware sorting and interactive markers
 
-### **🔍 Sistema de Pesquisa**
-- ✅ **Busca inteligente** por categoria
-- ✅ **Filtros** por localização
-- ✅ **Resultados** em tempo real
-- ✅ **Indicadores** de carregamento
+### Reviews
+- Restaurant detail view
+- Star ratings (1–5) and user comments
 
-### **⭐ Sistema de Avaliações**
-- ✅ **Tela de detalhes** do restaurante
-- ✅ **Formulário** de avaliação
-- ✅ **Sistema de notas** (1-5 estrelas)
-- ✅ **Comentários** dos usuários
+### Lists
+- Personal lists ("My Lists")
+- Unique share codes and full CRUD for list items
 
-### **📋 Sistema de Listas**
-- ✅ **"Minhas Listas"** personalizadas
-- ✅ **Códigos de compartilhamento** únicos
-- ✅ **Gerenciamento** completo de listas
-- ✅ **Adição/remoção** de restaurantes
+### Referral Program
+- Registration with referral code
+- Tracking for clicks/installs/registrations/first review
+- Points ledger for inviter incentives
+- Invite link generation and sharing
 
-### **🔗 Sistema de Referral**
-- ✅ **Tela de registro** com código de referência
-- ✅ **Pré-preenchimento** automático
-- ✅ **Tracking** de conversões
-- ✅ **Funil de referência** completo
+### Gamification and Rewards
+- User tiers, achievements, rewards, and points ledger
+- Gamification statistics endpoint for dashboards
+- Notification system for milestones
 
-### **📊 Dashboard de Métricas**
-- ✅ **Performance da IA** (78.5% de sucesso)
-- ✅ **Funil de referência** em tempo real
-- ✅ **Métricas de negócio** completas
-- ✅ **Top restaurantes** e buscas populares
+### AI Assistant and Insights
+- In-app AI chat with personas (user and restaurant owner)
+- Personalized recommendations and basic performance summaries
+- Restaurant performance forecasting and ROI analysis
 
-## 🏗️ **Estrutura do Projeto**
+### Restaurants and Reservations
+- Restaurant profiles, analytics, and owner dashboard
+- Reservation creation and status updates
+- Restaurant owner dashboard with metrics
+
+## Project Structure
 
 ```
 forkly/
 ├── backend/                 # Django API
-│   ├── api/                # App principal
-│   ├── server/             # Configurações Django
-│   ├── db.sqlite3          # Database SQLite
-│   └── seed_demo_data.py   # Dados de demonstração
+│   ├── api/                 # Main app
+│   │   ├── middleware.py    # Security middleware
+│   │   ├── security.py     # Security utilities
+│   │   └── models.py       # Data models
+│   ├── server/              # Django settings
+│   ├── db.sqlite3           # SQLite database
+│   ├── env.example          # Environment template
+│   └── seed_demo_data.py    # Demo seed script
 ├── frontend/
-│   └── forkly/             # App Flutter
+│   └── forkly/              # Flutter app
 │       ├── lib/
 │       │   ├── src/
-│       │   │   ├── screens/    # Telas do app
-│       │   │   ├── services/   # APIs e serviços
-│       │   │   └── app.dart    # Configuração principal
-│       │   └── main.dart       # Entry point
-│       ├── pubspec.yaml        # Dependências Flutter
-│       └── demo_build.sh       # Script de demonstração
-└── README.md               # Este arquivo
+│       │   │   ├── screens/     # App screens
+│       │   │   ├── services/    # API services
+│       │   │   └── app.dart     # App configuration
+│       │   └── main.dart        # Entry point
+│       ├── pubspec.yaml         # Flutter dependencies
+│       └── demo_build.sh        # Demo helper script
+└── README.md
 ```
 
-## 🚀 **Como Executar**
+## Getting Started
 
-### **1. Backend (Django)**
+### 1. Backend (Django)
 ```bash
 cd forkly/backend
 python3 -m venv venv
 source venv/bin/activate  # Linux/Mac
-# ou
+# or
 venv\Scripts\activate     # Windows
 
 pip install -r requirements.txt
 python3 manage.py migrate
-python3 seed_demo_data.py  # Popular com dados demo
+python3 seed_demo_data.py  # Seed demo data (optional)
 python3 manage.py runserver
 ```
 
-### **2. Frontend (Flutter)**
+### 2. Frontend (Flutter)
 ```bash
 cd forkly/frontend/forkly
 flutter pub get
 flutter run -d chrome --dart-define=API_BASE_URL=http://127.0.0.1:8000
 ```
 
-### **3. Demonstração Multiplataforma**
+### 3. Multi-Platform Demo
 ```bash
 cd forkly/frontend/forkly
 chmod +x demo_build.sh
 ./demo_build.sh
 ```
 
-## 📊 **Dados de Demonstração**
+## Security Implementation
 
-O projeto inclui dados de demonstração com:
-- **26 Restaurantes** próximos a São Paulo
-- **5 Usuários** demo com códigos de referência
-- **16 Avaliações** de demonstração
-- **8 Listas** de usuários com 24 itens
-- **5 Eventos** de referência rastreados
+### Authentication and Authorization
+- JWT-based authentication with token rotation
+- Role-based access control (user, restaurant_owner, admin)
+- Password validation and secure storage
+- Session management with secure cookies
 
-## 🎯 **Business Case - MVP Speed**
+### API Security
+- Rate limiting (60 requests/minute per IP, 100 requests/hour per user)
+- Input validation and sanitization
+- XSS and SQL injection prevention
+- Security headers on all responses
 
-### **✅ Vantagens do Flutter**
-- **Código único** para 4 plataformas
-- **Desenvolvimento 4x mais rápido**
-- **Manutenção 75% mais barata**
-- **Deploy simultâneo** em todas as plataformas
-- **UI/UX consistente** em todas as plataformas
+### Data Protection
+- Environment-based configuration
+- Secure secret management
+- Data validation and sanitization
+- Audit logging for security events
 
-### **📈 Métricas de Sucesso**
-- **Taxa de Sucesso da IA**: 78.5% (Meta: ≥70%)
-- **Funil de Referência**: 15 clicaram → 8 registraram → 5 primeira avaliação
-- **Taxa de Conversão**: 33.3%
-- **Performance Multiplataforma**: 100% compatível
+### Production Security
+- HTTPS enforcement
+- CORS configuration
+- Content Security Policy
+- Brute force protection
 
-## 🔧 **Configuração de Desenvolvimento**
+## Scalability Features
 
-### **Requisitos**
-- **Flutter SDK** 3.35.5+
-- **Dart SDK** 3.9.2+
-- **Python** 3.10+
-- **Django** 5.2.7+
-- **Chrome** (para web)
+### Database Optimization
+- Connection pooling for production
+- Query optimization with select_related/prefetch_related
+- Database indexing for location queries
+- Support for PostgreSQL in production
 
-### **Variáveis de Ambiente**
+### Caching Strategy
+- Redis caching for sessions and data
+- Intelligent cache TTL based on data type
+- Cache invalidation strategies
+- Performance monitoring
+
+### API Performance
+- Response compression
+- Efficient pagination
+- Rate limiting with token bucket algorithm
+- Request/response logging
+
+## Environment Configuration
+
+### Development Setup
 ```bash
-# Backend
-DJANGO_SECRET=your-secret-key
+# Copy environment template
+cp env.example .env
+
+# Configure development settings
+DJANGO_SECRET=your-development-secret
 DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1
-
-# Frontend
-API_BASE_URL=http://127.0.0.1:8000
-MAPS_API_KEY=your-google-maps-key  # Opcional para demo
+ALLOWED_ORIGINS=http://localhost:43495
 ```
 
-## 📱 **Navegação no App**
+### Production Setup
+```bash
+# Production environment variables
+DJANGO_SECRET=your-super-secret-key
+DEBUG=False
+ALLOWED_HOSTS=yourdomain.com,api.yourdomain.com
+ALLOWED_ORIGINS=https://yourdomain.com
+DATABASE_URL=postgresql://user:pass@localhost:5432/forkly_db
+REDIS_URL=redis://localhost:6379/0
+```
 
-1. **🏠 Tela Principal**: Mapa com pesquisa de restaurantes
-2. **📋 Minhas Listas**: Gerenciar listas personalizadas
-3. **🎁 Recompensas**: Sistema de pontos e recompensas
-4. **📊 Métricas**: Dashboard de performance
-5. **🏪 Detalhes**: Clique nos marcadores do mapa
+## Demo Data
 
-## 🎉 **Resultado Final**
+Included demo content:
+- 26 restaurants near São Paulo
+- 5 demo users with referral codes
+- 16 sample reviews
+- 8 user lists with 24 items
+- 5 tracked referral events
 
-### **✅ TODAS AS TASKS COMPLETAS:**
-1. ✅ **Task 3**: Referral Link Handling
-2. ✅ **Task 4**: Reviews & Lists  
-3. ✅ **Task 5**: Demo Data & Success Metrics
+## Development Requirements
 
-### **🚀 MVP MULTIPLATAFORMA FUNCIONANDO:**
-- ✅ **Web**: App completo rodando no Chrome
-- ✅ **Linux**: App nativo funcionando
-- ✅ **Android**: Código 100% compatível
-- ✅ **iOS**: Código 100% compatível
+- Flutter SDK 3.35.5+
+- Dart SDK 3.9.2+
+- Python 3.10+
+- Django 5.2.7+
+- Chrome (for web)
 
-**🎯 CONCLUSÃO: Flutter é a escolha ideal para MVP multiplataforma! O app está 100% funcional com todas as funcionalidades implementadas! 🚀**
+## Business Metrics (Demo)
 
-## 📄 **Licença**
+- AI assistance success rate: 78.5% (target ≥ 70%)
+- Referral funnel: 15 clicked → 8 registered → 5 first review
+- Conversion rate: 33.3%
+- Cross-platform compatibility: 100%
 
-Este projeto é uma demonstração técnica para fins educacionais.
+## Security Best Practices
 
----
+### Input Validation
+All user inputs are validated and sanitized to prevent XSS and injection attacks. The system includes comprehensive validation for:
+- Email addresses and usernames
+- Geographic coordinates
+- Search queries
+- Referral codes
 
-**Desenvolvido com ❤️ usando Flutter + Django**
+### Rate Limiting
+The application implements intelligent rate limiting:
+- Per-IP rate limiting with burst capacity
+- Per-user rate limiting for authenticated users
+- Different limits for different user tiers
+- Automatic lockout for excessive requests
+
+### Monitoring and Logging
+- Structured logging for all security events
+- Failed login attempt tracking
+- Rate limiting violation logging
+- Performance metrics collection
+
+## Production Deployment
+
+### Security Checklist
+- All secrets configured via environment variables
+- HTTPS enabled and properly configured
+- Rate limiting tested and configured
+- Security headers verified
+- Database encryption enabled
+- Logging and monitoring configured
+
+### Performance Optimization
+- Database connection pooling
+- Redis caching configured
+- Static file optimization
+- API response compression
+- Query optimization
+
+## License
+
+This project is a technical demonstration for educational purposes.

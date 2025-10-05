@@ -1,7 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:html' as html;
 import 'dart:convert';
 import '../models/user.dart';
 
@@ -34,15 +32,16 @@ class AuthService {
   // Carregar autenticação salva
   Future<void> _loadStoredAuth() async {
     try {
-      // Tentar carregar do localStorage (web)
-      final token = html.window.localStorage['auth_token'];
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      
       if (token != null) {
         _token = token;
         _isAuthenticated = true;
         
-        // Tentar carregar dados do usuário do localStorage também
+        // Tentar carregar dados do usuário do SharedPreferences
         try {
-          final userDataStr = html.window.localStorage['user_data'];
+          final userDataStr = prefs.getString('user_data');
           if (userDataStr != null) {
             final userData = jsonDecode(userDataStr);
             _currentUser = User(
@@ -50,10 +49,13 @@ class AuthService {
               username: userData['username'],
               email: userData['email'],
               name: _buildFullName(userData['first_name'], userData['last_name']) ?? userData['username'],
-              role: UserRole.user,
+              role: UserRole.fromString(
+                (userData['profile'] != null ? userData['profile']['role'] : null) ??
+                (userData['role'] ?? 'user'),
+              ),
               createdAt: DateTime.now(),
             );
-            print('Usuário carregado do localStorage: ${_currentUser?.name}');
+            print('Usuário carregado do SharedPreferences: ${_currentUser?.name}');
           } else {
             // Se não tem dados do usuário, tentar carregar do backend
             try {
@@ -67,11 +69,11 @@ class AuthService {
                   username: userData['username'],
                   email: userData['email'],
                   name: _buildFullName(userData['first_name'], userData['last_name']) ?? userData['username'],
-                  role: UserRole.user,
+                  role: UserRole.fromString(userData['profile']['role'] ?? 'user'),
                   createdAt: DateTime.now(),
                 );
-                // Salvar dados do usuário no localStorage
-                html.window.localStorage['user_data'] = jsonEncode(userData);
+                // Salvar dados do usuário no SharedPreferences
+                await prefs.setString('user_data', jsonEncode(userData));
               }
             } catch (e) {
               print('Erro ao carregar perfil: $e');
@@ -90,13 +92,6 @@ class AuthService {
 
   // Salvar token
   Future<void> _saveToken(String token) async {
-    try {
-      html.window.localStorage['auth_token'] = token;
-      print('Token salvo no localStorage');
-    } catch (e) {
-      print('Erro ao salvar token: $e');
-    }
-    
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('auth_token', token);
@@ -133,14 +128,15 @@ class AuthService {
           username: userData['username'],
           email: userData['email'],
           name: _buildFullName(userData['first_name'], userData['last_name']) ?? userData['username'],
-          role: UserRole.user,
+          role: UserRole.fromString(userData['profile']['role'] ?? 'user'),
           createdAt: DateTime.now(),
         );
         
-        // Salvar dados do usuário no localStorage
+        // Salvar dados do usuário no SharedPreferences
         try {
-          html.window.localStorage['user_data'] = jsonEncode(userData);
-          print('Dados do usuário salvos no localStorage');
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('user_data', jsonEncode(userData));
+          print('Dados do usuário salvos no SharedPreferences');
         } catch (e) {
           print('Erro ao salvar dados do usuário: $e');
         }
@@ -164,18 +160,12 @@ class AuthService {
     _token = null;
     
     try {
-      html.window.localStorage.remove('auth_token');
-      html.window.localStorage.remove('user_data');
-      print('Dados removidos do localStorage');
-    } catch (e) {
-      print('Erro ao remover dados do localStorage: $e');
-    }
-    
-    try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('auth_token');
+      await prefs.remove('user_data');
+      print('Dados removidos do SharedPreferences');
     } catch (e) {
-      print('Erro ao remover token do SharedPreferences: $e');
+      print('Erro ao remover dados do SharedPreferences: $e');
     }
     
     print('Logout realizado');
@@ -183,6 +173,17 @@ class AuthService {
 
   // Verificar se está logado
   bool get isLoggedIn => _isAuthenticated && _currentUser != null;
+  
+  // Métodos públicos para a API usar
+  Future<void> setToken(String token) async {
+    _token = token;
+    _isAuthenticated = true;
+    await _saveToken(token);
+  }
+  
+  void setUser(User user) {
+    _currentUser = user;
+  }
   
   // Método auxiliar para construir o nome completo
   String? _buildFullName(String? firstName, String? lastName) {

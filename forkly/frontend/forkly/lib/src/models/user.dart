@@ -82,11 +82,14 @@ class User {
 
 enum UserRole {
   user,
+  restaurantOwner,
   admin,
   superAdmin;
 
   static UserRole fromString(String role) {
     switch (role.toLowerCase()) {
+      case 'restaurant_owner':
+        return UserRole.restaurantOwner;
       case 'admin':
         return UserRole.admin;
       case 'superadmin':
@@ -101,6 +104,8 @@ enum UserRole {
     switch (this) {
       case UserRole.user:
         return 'user';
+      case UserRole.restaurantOwner:
+        return 'restaurant_owner';
       case UserRole.admin:
         return 'admin';
       case UserRole.superAdmin:
@@ -110,6 +115,7 @@ enum UserRole {
 
   bool get isAdmin => this == UserRole.admin || this == UserRole.superAdmin;
   bool get isSuperAdmin => this == UserRole.superAdmin;
+  bool get isRestaurantOwner => this == UserRole.restaurantOwner;
 }
 
 class AuthState {
